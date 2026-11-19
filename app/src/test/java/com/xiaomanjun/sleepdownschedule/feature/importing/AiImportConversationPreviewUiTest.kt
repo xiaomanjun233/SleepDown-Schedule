@@ -7,16 +7,24 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListState
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.material3.Text
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.dp
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import com.xiaomanjun.sleepdownschedule.core.ui.settings.GlassMiuixSettingsTheme
 import com.xiaomanjun.sleepdownschedule.defaultConfig
 import com.xiaomanjun.sleepdownschedule.defaultPeriods
 import com.xiaomanjun.sleepdownschedule.feature.importing.progress.AiEduImportProgressPage
+import com.xiaomanjun.sleepdownschedule.feature.importing.progress.followAiImportBottom
 import com.xiaomanjun.sleepdownschedule.model.*
 import com.xiaomanjun.sleepdownschedule.glass.GlassBackdropDomain
 import com.xiaomanjun.sleepdownschedule.glass.glassBackdropProducer
@@ -45,6 +53,54 @@ class AiImportConversationPreviewUiTest {
         CourseEntity(1, "原始课程", null, null, 1, listOf(1), (1..8).toList() + (10..12).toList(), WeekParity.ALL, "课表备注\n".repeat(12))))
 
     @After fun cleanup() { session.update(null) }
+
+    @Test fun transcriptFollowsOnlyWhileAtTheBottom() {
+        val count = mutableStateOf(2)
+        lateinit var list: LazyListState
+        compose.setContent {
+            list = rememberLazyListState()
+            LazyColumn(Modifier.fillMaxWidth().height(200.dp).followAiImportBottom(list), state = list) {
+                items(count.value, key = { it }) { Text("消息 $it", Modifier.height(68.dp)) }
+            }
+        }
+        compose.runOnIdle { count.value = 8 }
+        compose.waitForIdle()
+        compose.onNodeWithText("消息 7").assertIsDisplayed()
+        compose.runOnIdle { assertFalse(list.canScrollForward) }
+        val transcript = compose.onNode(hasScrollToIndexAction())
+        transcript.performTouchInput { swipeDown() }
+        val readingIndex = compose.runOnIdle { list.firstVisibleItemIndex }
+        compose.runOnIdle { assertTrue(list.canScrollForward); count.value = 10 }
+        compose.waitForIdle()
+        compose.runOnIdle { assertEquals(readingIndex, list.firstVisibleItemIndex) }
+        transcript.performScrollToIndex(9)
+        compose.waitForIdle()
+        compose.runOnIdle { count.value = 12 }
+        compose.waitForIdle()
+        compose.onNodeWithText("消息 11").assertIsDisplayed()
+        compose.runOnIdle { assertFalse(list.canScrollForward) }
+    }
+
+    @Test fun scriptSaveInputPrefillsSchoolAndOnlySubmitsANonBlankName() {
+        var submitted: String? = null
+        val open = mutableStateOf(true)
+        compose.setContent {
+            MaterialTheme {
+                if (open.value) EduScriptSaveDialog("示例大学", config, onDismiss = { open.value = false }) {
+                    submitted = it
+                    open.value = false
+                }
+            }
+        }
+        val school = compose.onNode(hasSetTextAction())
+        val save = compose.onNodeWithText("保存并上传")
+        school.assertTextContains("示例大学")
+        school.performTextReplacement("")
+        save.assertIsNotEnabled()
+        school.performTextReplacement("核对大学")
+        save.performClick()
+        compose.runOnIdle { assertEquals("核对大学", submitted) }
+    }
 
     @Test
     @Config(qualifiers = "w1280dp-h900dp-land")
@@ -121,9 +177,14 @@ class AiImportConversationPreviewUiTest {
         assertItemBefore("conversation-turn-0-preview", "current-user-message")
         compose.onAllNodesWithContentDescription("第2轮导入预览").assertCountEquals(0)
 
+        compose.onNode(hasScrollToIndexAction()).performScrollToIndex(0)
+        val earlierMessage = compose.onNodeWithText("导入课表")
+        val readingPosition = earlierMessage.fetchSemanticsNode().boundsInRoot.top
         compose.runOnIdle {
             session.updateActivity("second", AiImportActivity("**正在抓取", AiImportActivitySource.PROVIDER_SUMMARY))
         }
+        compose.waitForIdle()
+        assertEquals(readingPosition, earlierMessage.fetchSemanticsNode().boundsInRoot.top, 1f)
         positionOf(hasText("正在抓取"))
         compose.onNodeWithText("**正在抓取").assertDoesNotExist()
         compose.runOnIdle {
@@ -251,32 +312,36 @@ class AiImportConversationPreviewUiTest {
         compose.onNodeWithText("AI 导入").assertDoesNotExist()
     }
 
-    @Test fun successfulScriptHasAnExplicitSaveActionAndSavingDoesNotImportCourses() {
+    @Test fun verifiedScriptCanBeSavedAndUploadedIndependentlyOfCourseImport() {
         val context = compose.activity
         val taskId = "save-script-task"
         val name = "保存入口验证学校"
         val script = "// original source\n(async()=>{window.shiguangBridge.notifyTaskCompletion()})()"
         var courseImports = 0
+        val originalRequester = AiEduScriptUploader.postRequester
+        AiEduScriptUploader.postRequester = { _, _ -> 201 to """{"id":"23"}""" }
         session.beginTask(AiEduImportProgress(taskId = taskId, finished = true), baseDraft = original)
         EduVerifiedScripts.record(taskId, name, "https://edu.example.edu/login", "adapter.js", "verified-hash", script)
         try {
             compose.setContent { MaterialTheme { GlassMiuixSettingsTheme(config) {
                 AiEduImportProgressPage(config, onClose = {}, onImportRequested = { _, _ -> courseImports++ })
             } } }
-            positionOf(hasText("保存当前脚本"))
-            compose.onNodeWithText("保存当前脚本").performClick()
-            compose.onNodeWithText("保存为我的适配？").assertExists()
-            compose.onNodeWithText("查看脚本").performClick()
-            compose.onNodeWithText(script).assertExists()
-            compose.onNodeWithText("保存", substring = false).performClick()
-            compose.waitUntil(10_000) { LocalEduAdapterStore.load(context).any { it.school.name == name } }
+            positionOf(hasText("保存并上传"))
+            compose.onNodeWithText("保存并上传").performClick()
+            compose.onNodeWithText("保存并上传教务脚本").assertExists()
+            compose.onNode(hasSetTextAction() and hasAnyAncestor(isDialog())).assertTextContains(name)
+            compose.onNodeWithText(script).assertDoesNotExist()
+            compose.onNode(hasText("保存并上传") and hasAnyAncestor(isDialog())).performClick()
+            compose.waitUntil(10_000) { EduVerifiedScripts.current.value?.submission?.state?.value?.uploaded == true }
             compose.waitForIdle()
             val saved = LocalEduAdapterStore.load(context).single { it.school.name == name }
             assertEquals(script, LocalEduAdapterStore.source(context, saved))
+            assertEquals(AiEduScriptMaintainer, saved.maintainer)
             assertEquals(0, courseImports)
-            positionOf(hasText("已保存到我的适配"))
-            compose.onNodeWithText("已保存到我的适配").assertIsNotEnabled()
+            positionOf(hasText("已保存并上传"))
+            compose.onNodeWithText("已保存并上传").assertIsNotEnabled()
         } finally {
+            AiEduScriptUploader.postRequester = originalRequester
             LocalEduAdapterStore.load(context).filter { it.school.name == name }.forEach { LocalEduAdapterStore.delete(context, it) }
             EduVerifiedScripts.clear(taskId)
         }

@@ -34,6 +34,11 @@ import com.xiaomanjun.sleepdownschedule.AppState
 import com.xiaomanjun.sleepdownschedule.R
 import com.xiaomanjun.sleepdownschedule.ScheduleConfigEntity
 import com.xiaomanjun.sleepdownschedule.core.remoteconfig.SleepDownRemoteConfig
+import com.xiaomanjun.sleepdownschedule.data.ai.FreeAiQuotaBucket
+import com.xiaomanjun.sleepdownschedule.data.ai.FreeAiQuotaGate
+import com.xiaomanjun.sleepdownschedule.data.ai.FreeAiQuotaKind
+import com.xiaomanjun.sleepdownschedule.data.ai.FreeAiQuotaStore
+import com.xiaomanjun.sleepdownschedule.core.ui.controls.conicQuotaRingColor
 import com.xiaomanjun.sleepdownschedule.core.ui.scaffold.detailContentBottomPadding
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.DialogCapsuleField
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.LiquidAlertAction
@@ -45,6 +50,7 @@ import com.xiaomanjun.sleepdownschedule.core.ui.scaffold.settingsPageBackground
 import com.xiaomanjun.sleepdownschedule.core.ui.settings.GlassPreferenceSection
 import com.xiaomanjun.sleepdownschedule.core.ui.settings.SettingsActionButton
 import com.xiaomanjun.sleepdownschedule.core.ui.settings.SettingsActionRow
+import com.xiaomanjun.sleepdownschedule.core.ui.settings.SettingsConicQuotaRow
 import com.xiaomanjun.sleepdownschedule.core.ui.settings.SettingsDivider
 import com.xiaomanjun.sleepdownschedule.core.ui.settings.SettingsFloatingActionArea
 import com.xiaomanjun.sleepdownschedule.core.ui.settings.SettingsGroup
@@ -102,6 +108,10 @@ fun AiImportSettingsSection(
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val remoteConfigState by SleepDownRemoteConfig.state.collectAsStateWithLifecycle()
+    val freeAiQuotaState by FreeAiQuotaStore.state.collectAsStateWithLifecycle()
+    val effectiveFreeAiQuota = freeAiQuotaState ?: remember(context) { FreeAiQuotaStore.current(context) }
+    var freeQuotaRefreshing by remember { mutableStateOf(false) }
+    var freeQuotaError by remember { mutableStateOf<String?>(null) }
     val chatGptAuth by ChatGptAuthManager.state.collectAsStateWithLifecycle()
     var chatGptSigningOut by remember { mutableStateOf(false) }
     var saved by remember { mutableStateOf(AiImportSettingsStore.load(context)) }
@@ -299,6 +309,26 @@ fun AiImportSettingsSection(
 	LaunchedEffect(Unit) {
 		SleepDownRemoteConfig.refresh(scope, force = true)
 	}
+    fun refreshFreeQuotaSnapshot(force: Boolean = false) {
+        if (!isManagedFreeProvider || freeQuotaRefreshing) return
+        if (!force && effectiveFreeAiQuota?.syncedFromServer == true) return
+        freeQuotaRefreshing = true
+        freeQuotaError = null
+        scope.launch {
+            try {
+                FreeAiQuotaGate.refreshSnapshotOnDemand(context)
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (error: Throwable) {
+                freeQuotaError = error.message
+            } finally {
+                freeQuotaRefreshing = false
+            }
+        }
+    }
+    LaunchedEffect(isManagedFreeProvider) {
+        if (isManagedFreeProvider) refreshFreeQuotaSnapshot(force = false)
+    }
     LaunchedEffect(
         remoteConfigState.bootstrap?.ai?.configVersion,
         remoteConfigState.bootstrap?.ai?.enabled,
@@ -494,14 +524,52 @@ fun AiImportSettingsSection(
                 "每日免费 AI",
                 ManagedAiRemoteConfig.managedFreeStatusMessage(context)
             )
+            val darkSurface = appUsesDarkTheme(state.config)
+            val chatBucket = effectiveFreeAiQuota?.bucket(FreeAiQuotaKind.CHAT)
+            val chatProgress = chatBucket?.remainingFraction() ?: if (freeQuotaRefreshing) 1f else 0f
+            SettingsDivider()
+            SettingsConicQuotaRow(
+                title = "今日免费对话额度",
+                centerLabel = quotaRingCenterLabel(chatBucket, freeQuotaRefreshing),
+                progress = chatProgress,
+                accent = conicQuotaRingColor(
+                    progress = chatProgress,
+                    isExhausted = chatBucket?.isExhausted == true,
+                    isUnlimited = chatBucket?.isUnlimited == true,
+                    darkSurface = darkSurface
+                ),
+                darkSurface = darkSurface,
+                subtitle = quotaRingSubtitle(chatBucket, freeQuotaRefreshing),
+                glowEnabled = chatBucket != null && !chatBucket.isExhausted
+            )
+            val importBucket = effectiveFreeAiQuota?.bucket(FreeAiQuotaKind.IMPORT)
+            val importProgress = importBucket?.remainingFraction() ?: if (freeQuotaRefreshing) 1f else 0f
+            SettingsDivider()
+            SettingsConicQuotaRow(
+                title = "今日免费导入额度",
+                centerLabel = quotaRingCenterLabel(importBucket, freeQuotaRefreshing),
+                progress = importProgress,
+                accent = conicQuotaRingColor(
+                    progress = importProgress,
+                    isExhausted = importBucket?.isExhausted == true,
+                    isUnlimited = importBucket?.isUnlimited == true,
+                    darkSurface = darkSurface
+                ),
+                darkSurface = darkSurface,
+                subtitle = quotaRingSubtitle(importBucket, freeQuotaRefreshing, freeQuotaError),
+                glowEnabled = importBucket != null && !importBucket.isExhausted
+            )
             SettingsDivider()
             SettingsActionRow(
-                title = "远程配置",
+                title = "远程配置与额度",
                 subtitle = remoteConfigState.lastError?.let { "刷新失败：$it" }
-                    ?: if (remoteConfigState.isRefreshing) "正在获取后台最新配置…" else "进入本页时会自动刷新，也可在这里立即重试",
+                    ?: if (remoteConfigState.isRefreshing || freeQuotaRefreshing) "正在获取最新配置与额度…" else "进入本页时按需同步，也可在这里立即刷新",
                 buttonText = "刷新", iconRes = R.drawable.ic_refresh, backdrop = backdrop,
-                enabled = !remoteConfigState.isRefreshing,
-                onClick = { SleepDownRemoteConfig.refresh(scope, force = true) },
+                enabled = !remoteConfigState.isRefreshing && !freeQuotaRefreshing,
+                onClick = {
+                    SleepDownRemoteConfig.refresh(scope, force = true)
+                    refreshFreeQuotaSnapshot(force = true)
+                },
             )
 			if (reasoningOptions.isNotEmpty()) {
                 SettingsDivider()
@@ -836,4 +904,25 @@ private fun AiProviderPickerRow(
             }
         }
     )
+}
+
+private fun quotaRingCenterLabel(bucket: FreeAiQuotaBucket?, refreshing: Boolean): String = when {
+    bucket == null -> if (refreshing) "…" else "--"
+    bucket.isUnlimited -> "∞"
+    bucket.isPaused -> "0"
+    bucket.remaining != null -> bucket.remaining.toString()
+    else -> bucket.limit.toString()
+}
+
+private fun quotaRingSubtitle(
+    bucket: FreeAiQuotaBucket?,
+    refreshing: Boolean,
+    syncError: String? = null
+): String = when {
+    !syncError.isNullOrBlank() -> "同步失败：$syncError"
+    bucket == null -> if (refreshing) "正在同步今日额度…" else "每日 00:00（北京时间）自动重置"
+    bucket.isUnlimited -> "不限次数"
+    bucket.isPaused -> "暂未开放（0 次/日）"
+    bucket.used != null -> "已用 ${bucket.used} / ${bucket.limit} 次 · 00:00 重置"
+    else -> "每日限 ${bucket.limit} 次 · 00:00 重置"
 }

@@ -10,6 +10,8 @@ import com.xiaomanjun.sleepdownschedule.feature.importing.shiguang.ShiguangBridg
 import com.xiaomanjun.sleepdownschedule.model.defaultConfig
 import com.xiaomanjun.sleepdownschedule.model.defaultPeriods
 import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.put
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonArray
@@ -39,22 +41,17 @@ class AiEduWorkspaceThreadTest {
         val evidence = EduImportEvidence()
         val reply = onWorker { workspace.execute("READ_PAGE", buildJsonObject {}, files, {}, evidence) }
         assertTrue(reply.text.contains("虚构课程页面"))
-        val hints = JSONObject(reply.text.substringAfter("[当前页面已加载资源与接口线索]\n"))
+        val hints = JSONObject(reply.text)
         assertEquals("/api/semester", hints.getJSONArray("resources").getString(0))
-        assertEquals(2, browser.scripts.size)
-        assertFalse(evidence.readyToSubmit)
-        evidence.choosePageFallback("已核实当前页面没有可用的结构化课程接口")
-        assertTrue(evidence.readyToSubmit)
+        assertEquals(1, browser.scripts.size)
     }
 
-    @Test fun workerRequestsUseMainForJavascriptAndKeepInterfaceEvidence() = withWorkspace { workspace, browser, files ->
+    @Test fun workerRequestsUseMainForJavascript() = withWorkspace { workspace, browser, files ->
         val evidence = EduImportEvidence()
         val reply = onWorker { workspace.execute("REQUEST", buildJsonObject { put("url", "/api/semester") }, files, {}, evidence) }
         assertTrue(reply.text.contains("fixture-semester"))
         assertTrue(browser.scripts.any { it.contains("fetch(") })
         assertTrue(browser.scripts.any { it.contains("delete window[") })
-        evidence.recordPageRead()
-        assertTrue(evidence.readyToSubmit)
     }
 
     @Test fun sameOriginNavigationCannotReplaceTheDocumentGrantedAtEntry() = withWorkspace { workspace, browser, files ->
@@ -65,7 +62,6 @@ class AiEduWorkspaceThreadTest {
         }
         assertTrue(failure.message.orEmpty().contains("页面已变化"))
         assertTrue(browser.scripts.isEmpty())
-        assertFalse(evidence.readyToSubmit)
     }
 
     @Test fun probeUsesTheLatestTaskFileOnTheSameBorrowedBrowserAndCleansUp() = withWorkspace { workspace, browser, files ->
@@ -76,20 +72,17 @@ class AiEduWorkspaceThreadTest {
         assertTrue(result.text.contains("probe-result"))
         assertTrue(browser.scripts.any { it.contains("async function(window, fetch, console)") && it.contains(file.text) })
         assertTrue(browser.scripts.any { it.contains("delete window[") && it.contains("__sleepdown_probe_") })
-        evidence.recordPageRead()
-        assertTrue(evidence.readyToSubmit)
         files.edit(file.path, "courses:2", "courses:3", file.hash)
         val before = browser.scripts.size
         assertThrows(IllegalArgumentException::class.java) { onWorker { workspace.execute("PROBE_SCRIPT", args, files, {}, evidence) } }
         assertEquals(before, browser.scripts.size)
     }
 
-    @Test fun scrollUsesAnExplicitContainerAndDoesNotFabricateInvestigationEvidence() = withWorkspace { workspace, browser, files ->
+    @Test fun scrollUsesAnExplicitContainer() = withWorkspace { workspace, browser, files ->
         val evidence = EduImportEvidence()
         val result = onWorker { workspace.execute("SCROLL", buildJsonObject { put("direction", "down"); put("selector", "#courses") }, files, {}, evidence) }
         assertEquals(80, JSONObject(result.text).getInt("y"))
         assertTrue(browser.scripts.single().contains("#courses"))
-        assertFalse(evidence.readyToSubmit)
     }
 
     @Test fun pageImageToolIsAdvertisedOnlyToVisualModelsInBothProtocols() {
@@ -100,16 +93,19 @@ class AiEduWorkspaceThreadTest {
                 .getValue("operation").jsonObject.getValue("enum").jsonArray.map { it.jsonPrimitive.content }
             assertEquals(vision, "VIEW_PAGE" in operations)
             assertTrue("PROBE_SCRIPT" in operations && "SCROLL" in operations)
+            assertFalse("RUN_SCRIPT" in operations)
         }
     }
 
-    @Test fun nativeSuccessfulScriptCanBeSavedAfterScratchCleanupButAnEditRequiresANewRun() = withWorkspace { workspace, _, _ ->
+    @Test fun verifiedScriptCanBeSavedAfterScratchCleanupButAnEditRequiresANewRun() = withWorkspace { workspace, _, _ ->
         val app = RuntimeEnvironment.getApplication()
         val script = """(async()=>{await window.shiguangBridgePromise.saveImportedCourses('[{"name":"验证课程","teacher":"","position":"","day":1,"startSection":1,"endSection":1,"weeks":[1]}]');window.shiguangBridge.notifyTaskCompletion()})()"""
         AiTaskWorkspace(app, workspace).use { task ->
             val written = task.execute(TaskWorkspaceTool, buildJsonObject { put("operation", "WRITE"); put("path", "adapter.js"); put("text", script); put("expectedHash", "") })
             val hash = JSONObject(written.text).getString("sha256")
-            fun run(hash: String) = onWorker { task.execute(EduWorkspaceTool, buildJsonObject { put("operation", "RUN_SCRIPT"); put("path", "adapter.js"); put("expectedHash", hash) }) }
+            fun run(hash: String) = onWorker { task.execute("RUN_SCRIPT", buildJsonObject {
+                put("path", "adapter.js"); put("expectedHash", hash); put("timeSlots", "api")
+            }) }
             run(hash)
             assertEquals(script, EduVerifiedScripts.current.value?.proposal?.source)
             val edited = task.execute(TaskWorkspaceTool, buildJsonObject { put("operation", "EDIT"); put("path", "./adapter.js"); put("oldText", "验证课程"); put("newText", "修订课程"); put("expectedHash", hash) })
@@ -120,21 +116,49 @@ class AiEduWorkspaceThreadTest {
         assertTrue(EduVerifiedScripts.current.value!!.proposal.source.contains("修订课程"))
     }
 
+    @Test fun validatedRunScriptFinishesWithoutAnotherModelTurn() = withWorkspace { workspace, _, _ ->
+        val app = RuntimeEnvironment.getApplication()
+        val config = AiProviderConfig("fixture", "fixture", "placeholder", "https://fixture.invalid/v1", "fixture",
+            AiEndpointStyle.CHAT_COMPLETIONS, StructuredOutputMode.PROMPT_ONLY, false, false, false,
+            false, AiInputMode.AUTO, AiReasoningEffort.NONE, contextWindowTokens = 32_768)
+        val body = buildJsonObject { put("messages", JsonArray(emptyList())) }
+        var turns = 0
+        val result = onWorker {
+            AiMaterialWorkspace.fromPages("教务", "课表入口", emptyList()).use { materials ->
+                materials.taskWorkspace = AiTaskWorkspace(app, workspace)
+                requestScheduleImport(config, body, AiImportNetworkContext("EDU_WORKSPACE", materials = materials)) { _, _ ->
+                    assertEquals(1, ++turns)
+                    val args = buildJsonObject {
+                        put("script", "window.shiguangBridge.notifyTaskCompletion()")
+                        put("school", "测试大学")
+                        put("timeSlots", "api")
+                    }
+                    """{"choices":[{"finish_reason":"tool_calls","message":{"role":"assistant","tool_calls":[{"id":"run-1","type":"function","function":{"name":"RUN_SCRIPT","arguments":${JsonPrimitive(args.toString())}}}]}}]}"""
+                }
+            }
+        }
+        val verified = checkNotNull(result.verifiedEduDraft)
+        val preview = AiImportCheckpoint.create("thread-fixture", verified, "预览")
+            .restore(defaultConfig()).getOrThrow()
+        assertEquals("验证课程", verified.courses.single().name)
+        assertTrue(checkNotNull(EduVerifiedScripts.current.value).matchesDraft(preview))
+        AiEduImportProgressSession.requestFinalImport(preview, createNewSchedule = true, liveTaskId = "thread-fixture")
+        val request = checkNotNull(AiEduImportProgressSession.finalImportRequest.value)
+        assertTrue(AiEduImportProgressSession.claimFinalImportRequest(request))
+        assertFalse(AiEduImportProgressSession.claimFinalImportRequest(request))
+        val script = checkNotNull(request.verifiedScript)
+        assertEquals("测试大学", script.schoolNameForAutomaticSave())
+        assertTrue(isSleepDownAiEduAdapterId(script.proposal.adapterId))
+        assertFalse(script.submission.state.value.saving)
+    }
+
     private fun withWorkspace(test: (AiEduWorkspace, MainThreadWebView, AgentTaskFiles) -> Unit) {
         val app = RuntimeEnvironment.getApplication()
         val browser = MainThreadWebView(app)
         val home = EduBrowserWebViewHost(app, browser)
         val bridge = ShiguangBridgeHost({}, {}, {})
-        browser.onStandardScript = { source ->
-            val token = Regex("var token = \\\"([^\\\"]+)\\\"").find(source)!!.groupValues[1]
-            val name = if (source.contains("修订课程")) "修订课程" else "验证课程"
-            bridge.onMessageReceived(JSONObject().put("action", "saveImportedCourses").put("executionToken", token)
-                .put("callbackId", "save-courses").put("payload", JSONObject().put("coursesJsonString",
-                    """[{"name":"$name","teacher":"","position":"","day":1,"startSection":1,"endSection":1,"weeks":[1]}]""").toString()).toString())
-            bridge.onMessageReceived(JSONObject().put("action", "notifyTaskCompletion").put("executionToken", token).toString())
-        }
         try {
-            val workspace = AiEduWorkspace(app, browser, bridge, defaultConfig(), defaultPeriods(), false) { true }
+            val workspace = AiEduWorkspace(app, browser, bridge, defaultConfig(), defaultPeriods()) { true }
             workspace.bindTask("thread-fixture")
             val floatingHost = FrameLayout(app)
             assertTrue(checkNotNull(AiEduBrowserSessions.current.value).session.attach(floatingHost))
@@ -171,7 +195,7 @@ class AiEduWorkspaceThreadTest {
     private class MainThreadWebView(app: Application) : WebView(app) {
         var currentUrl = "http://127.0.0.1:18765/"
         val scripts = mutableListOf<String>()
-        var onStandardScript: ((String) -> Unit)? = null
+        private var scriptCourse = "验证课程"
         override fun getUrl(): String {
             check(Looper.myLooper() == Looper.getMainLooper()) { "WebView.getUrl called off main thread" }
             return currentUrl
@@ -180,8 +204,15 @@ class AiEduWorkspaceThreadTest {
             check(Looper.myLooper() == Looper.getMainLooper()) { "WebView.evaluateJavascript called off main thread" }
             scripts += script
             val result = when {
-                script.contains("var actualWindow = window;") -> { onStandardScript?.invoke(script); "\"started\"" }
-                script.contains("performance.getEntriesByType") -> JSONObject.quote("""{"path":"/","resources":["/api/semester"],"forms":[]}""")
+                script.contains("const AsyncFunction =") -> {
+                    scriptCourse = if (script.contains("修订课程")) "修订课程" else "验证课程"
+                    "\"started\""
+                }
+                script.contains("_sleepdownEduTrial_") && script.contains("?.snapshot()") ->
+                    JSONObject.quote(JSONObject().put("done", true).put("courses",
+                        """[{"name":"$scriptCourse","teacher":"","position":"","day":1,"startSection":1,"endSection":1,"weeks":[1]}]""").toString())
+                script.contains("performance.getEntriesByType") ->
+                    JSONObject.quote("""{"path":"/","textPreview":"虚构课程页面","resources":["/api/semester"],"forms":[]}""")
                 script.contains("node.scrollTo(") -> JSONObject.quote("""{"x":0,"y":80,"height":100}""")
                 script.startsWith("JSON.stringify(window[") && script.contains("__sleepdown_probe_") -> JSONObject.quote("""{"result":"probe-result","requests":1,"logs":[]}""")
                 script.contains("fetch(") -> "true"

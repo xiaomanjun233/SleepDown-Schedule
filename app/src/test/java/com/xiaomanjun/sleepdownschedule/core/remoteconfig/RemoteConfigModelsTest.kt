@@ -49,4 +49,19 @@ class RemoteConfigModelsTest {
         assertEquals(RemoteAiAvailability.DISABLED, active.copy(enabled = false).availability(99))
         assertEquals(RemoteAiAvailability.UNSUPPORTED, active.copy(kdfVersion = 2).availability(99))
     }
+
+    @Test
+    fun bootstrapParsesOptionalAiQuotaPolicy() {
+        val withQuota = json.decodeFromString<RemoteBootstrap>(
+            """{"schemaVersion":1,"serverTime":1794900000,"aiQuota":{"chatDailyLimit":20,"importDailyLimit":5,"timezone":"Asia/Shanghai"}}"""
+        )
+        assertEquals(20L, withQuota.aiQuota?.chatDailyLimit)
+        assertEquals(5L, withQuota.aiQuota?.importDailyLimit)
+        assertEquals("Asia/Shanghai", withQuota.aiQuota?.timezone)
+
+        val legacy = json.decodeFromString<RemoteBootstrap>(
+            """{"schemaVersion":1,"serverTime":1794900000}"""
+        )
+        assertNull(legacy.aiQuota)
+    }
 }

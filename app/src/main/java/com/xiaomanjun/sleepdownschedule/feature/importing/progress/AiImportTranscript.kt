@@ -4,7 +4,6 @@ import androidx.compose.foundation.gestures.scrollBy
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.background
 import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.foundation.interaction.collectIsDraggedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Box
@@ -21,8 +20,12 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.luminance
+import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
+import androidx.compose.ui.input.nestedscroll.NestedScrollSource
+import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.semantics
@@ -35,9 +38,6 @@ import com.xiaomanjun.sleepdownschedule.feature.importing.normalizeAiImportRepor
 import com.xiaomanjun.sleepdownschedule.feature.importing.importPublicProgressText
 import com.xiaomanjun.sleepdownschedule.R
 import com.kyant.shapes.Capsule
-import kotlinx.coroutines.Job
-import kotlinx.coroutines.flow.collect
-import kotlinx.coroutines.launch
 
 internal val AiImportTranscriptIndent = 24.dp
 
@@ -136,73 +136,29 @@ internal suspend fun LazyListState.scrollToAiImportEnd() {
     }
 }
 
-private data class TranscriptLayout(val count: Int, val lastIndex: Int, val lastHeight: Int,
-    val viewportStart: Int, val viewportEnd: Int, val bottomPadding: Int) {
-    val readingBottom: Int get() = viewportEnd - bottomPadding
-}
-
-private data class TranscriptViewport(
-    val layout: TranscriptLayout,
-    val canScrollForward: Boolean,
-    val dragging: Boolean,
-    val keyboardRaised: Boolean,
-    val firstIndex: Int,
-    val firstOffset: Int,
-    val tailBottom: Int?,
-)
-
-/** Follow new content until the user scrolls back; token updates never force a return to the end. */
 @Composable
-internal fun rememberAiImportFollowingLatest(
-    list: LazyListState,
-    taskId: String,
-    keyboardRaised: () -> Boolean = { false },
-): MutableState<Boolean> {
-    val following = remember(taskId) { mutableStateOf(true) }
-    val dragging = list.interactionSource.collectIsDraggedAsState()
-    val readKeyboardRaised by rememberUpdatedState(keyboardRaised)
-    LaunchedEffect(list, taskId) {
-        var previous: TranscriptViewport? = null
-        var keyboardShift = 0
-        var scrolling: Job? = null
-        snapshotFlow {
-            val layout = list.layoutInfo
-            val last = layout.visibleItemsInfo.lastOrNull()
-            TranscriptViewport(TranscriptLayout(layout.totalItemsCount, last?.index ?: -1, last?.size ?: 0,
-                layout.viewportStartOffset, layout.viewportEndOffset, layout.afterContentPadding),
-                list.canScrollForward, dragging.value, readKeyboardRaised(), list.firstVisibleItemIndex,
-                list.firstVisibleItemScrollOffset,
-                last?.takeIf { it.index == layout.totalItemsCount - 1 }?.let { it.offset + it.size })
-        }.collect { viewport ->
-            val before = previous
-            previous = viewport
-            if (viewport.dragging) {
-                scrolling?.cancel()
-                keyboardShift = 0
-                following.value = !viewport.canScrollForward
-                return@collect
-            }
-            val shape = viewport.layout
-            val rise = before?.let { it.layout.readingBottom - shape.readingBottom } ?: 0
-            if (before != null && rise != 0 && (viewport.keyboardRaised || before.keyboardRaised || keyboardShift > 0)) {
-                // Anchor the content against the composer's upper edge. For a short conversation,
-                // consume the gap above the composer before moving any content.
-                val shift = if (rise > 0) {
-                    before.tailBottom?.let { (it - shape.readingBottom).coerceIn(0, rise) } ?: rise
-                } else -minOf(-rise, keyboardShift)
-                keyboardShift += shift
-                if (shift != 0 && shape.count > 0) {
-                    scrolling?.cancel()
-                    list.requestScrollToItem(before.firstIndex.coerceAtMost(shape.count - 1), before.firstOffset + shift)
+internal fun Modifier.followAiImportBottom(list: LazyListState): Modifier {
+    var following by remember(list) { mutableStateOf(false) }
+    val input = remember(list) {
+        object : NestedScrollConnection {
+            override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset {
+                if (source == NestedScrollSource.UserInput && available.y > 0f && list.canScrollBackward) {
+                    following = false
                 }
-                return@collect
-            }
-            if (!viewport.canScrollForward) following.value = true
-            if (shape != before?.layout && following.value) {
-                scrolling?.cancel()
-                scrolling = launch { withFrameNanos { }; list.scrollToAiImportEnd() }
+                return Offset.Zero
             }
         }
     }
-    return following
+    LaunchedEffect(list) {
+        snapshotFlow { list.layoutInfo to list.isScrollInProgress }.collect { (layout, scrolling) ->
+            if (layout.totalItemsCount == 0 || scrolling || list.isScrollInProgress) return@collect
+            if (!list.canScrollForward) {
+                following = true
+            } else if (following) {
+                withFrameNanos { }
+                if (following && !list.isScrollInProgress && list.canScrollForward) list.scrollToAiImportEnd()
+            }
+        }
+    }
+    return nestedScroll(input)
 }

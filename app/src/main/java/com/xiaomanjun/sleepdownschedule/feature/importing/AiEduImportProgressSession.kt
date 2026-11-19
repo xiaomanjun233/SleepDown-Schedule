@@ -196,7 +196,7 @@ object AiEduImportProgressSession {
     private val _previewDraft = MutableStateFlow<ImportDraft?>(null)
     val previewDraft: StateFlow<ImportDraft?> = _previewDraft.asStateFlow()
     private val _finalImportRequest = MutableStateFlow<AiEduFinalImportRequest?>(null)
-    val finalImportRequest: StateFlow<AiEduFinalImportRequest?> = _finalImportRequest.asStateFlow()
+    internal val finalImportRequest: StateFlow<AiEduFinalImportRequest?> = _finalImportRequest.asStateFlow()
 
     private var onConfirm: (() -> Unit)? = null
     private var onSecondaryConfirm: (() -> Unit)? = null
@@ -398,16 +398,16 @@ object AiEduImportProgressSession {
         }
     }
 
-    fun requestFinalImport(draft: ImportDraft, createNewSchedule: Boolean) {
-        _finalImportRequest.value = AiEduFinalImportRequest(draft, createNewSchedule)
+    internal fun requestFinalImport(draft: ImportDraft, createNewSchedule: Boolean, liveTaskId: String? = null) {
+        val verified = liveTaskId?.let { taskId ->
+            EduVerifiedScripts.current.value?.takeIf { it.proposal.taskId == taskId && it.matchesDraft(draft) }
+        }
+        _finalImportRequest.value = AiEduFinalImportRequest(draft, createNewSchedule, verified)
     }
 
-    fun consumeFinalImportRequest() {
-        synchronized(lock) {
-            // Importing history must not erase a different live workspace or its chosen stage.
-            _finalImportRequest.value = null
-        }
-    }
+    internal fun claimFinalImportRequest(request: AiEduFinalImportRequest): Boolean =
+        _finalImportRequest.compareAndSet(request, null)
+
 
     private fun consumeAction(selector: () -> (() -> Unit)?) {
         val action = synchronized(lock) {
@@ -457,7 +457,8 @@ private fun AiEduImportProgress.withCheckpointsFrom(source: AiEduImportProgress)
     checkpointRevision = source.checkpointRevision, checkpointLineageId = source.checkpointLineageId,
     checkpointGeneration = source.checkpointGeneration)
 
-data class AiEduFinalImportRequest(
+internal data class AiEduFinalImportRequest(
     val draft: ImportDraft,
-    val createNewSchedule: Boolean
+    val createNewSchedule: Boolean,
+    val verifiedScript: EduVerifiedScript?
 )

@@ -10,6 +10,9 @@ import java.util.UUID
 private const val LocalGeneration = "self-use-v1"
 internal fun EduAdapter.isSelfUseAdapter() = warehouseGeneration == LocalGeneration
 
+internal fun localEduSchoolId(adapterId: String): String =
+    "LOCAL_${adapterId.replace("-", "_").uppercase(java.util.Locale.ROOT)}"
+
 /** Exact origins only: sharing a vendor, parent domain or CAS login never proves a school match. */
 internal fun eduOrigin(value: String): String? = runCatching {
     val uri = URI(value.trim())
@@ -23,8 +26,12 @@ internal fun eduOrigin(value: String): String? = runCatching {
 internal fun matchingLocalEduAdapters(url: String, adapters: List<EduAdapter>): List<EduAdapter> {
     val origin = eduOrigin(url) ?: return emptyList()
     return adapters.filter { !it.isAiEduImportTool() && !it.isGeneralEduTool() &&
-        eduOrigin(it.importUrl) == origin }.distinctBy { it.school.id to it.adapterId }
-        .sortedWith(compareByDescending<EduAdapter> { it.isSelfUseAdapter() }.thenBy { it.displayName })
+        eduOrigin(it.importUrl) == origin }.distinctBy { Triple(it.school.id, it.source, it.adapterId) }
+        .sortedWith(
+            compareByDescending<EduAdapter> { it.isSelfUseAdapter() }
+                .thenBy { it.source.ordinal }
+                .thenBy { it.displayName }
+        )
 }
 
 /** Private, opt-in adapters; this store is separate from the upstream index and updater. */
@@ -49,22 +56,27 @@ internal object LocalEduAdapterStore {
 
     @Synchronized fun source(context: Context, adapter: EduAdapter): String {
         require(adapter.isSelfUseAdapter())
-        val file = record(context, adapter.adapterId)
-        return if (file.baseFile.isFile || File(file.baseFile.path + ".bak").isFile)
-            LocalEduAdapterPackage.decode(file.readFully()).source
-        else decode(record(context, adapter.adapterId, "json").readFully()).getValue("source").jsonPrimitive.content
+        return source(context, adapter.adapterId)
     }
 
-    @Synchronized fun save(context: Context, name: String, url: String, source: String, id: String? = null): EduAdapter {
+    @Synchronized fun source(context: Context, id: String): String {
+        val file = record(context, id)
+        return if (file.baseFile.isFile || File(file.baseFile.path + ".bak").isFile)
+            LocalEduAdapterPackage.decode(file.readFully()).source
+        else decode(record(context, id, "json").readFully()).getValue("source").jsonPrimitive.content
+    }
+
+    @Synchronized fun save(context: Context, name: String, url: String, source: String, id: String? = null,
+                           maintainer: String = "小漫君"): EduAdapter {
         require(name.isNotBlank() && name.length <= 80 && name.none { it.isISOControl() })
         val loginUrl = cleanLocalEduLoginUrl(url)
         require(source.toByteArray().size in 1..262_144) { "脚本为空或超过 256 KiB" }
         require(source.contains("shiguangBridge") && source.contains("notifyTaskCompletion")) { "脚本需使用拾光 Bridge 协议" }
         val key = id ?: UUID.randomUUID().toString()
-        val schoolId = "LOCAL_${key.replace("-", "_").uppercase(java.util.Locale.ROOT)}"
+        val schoolId = localEduSchoolId(key)
         val adapter = EduAdapter(EduSchool(schoolId, name.trim(), schoolId, "L"), key,
             "自用适配", "BACHELOR_AND_ASSOCIATE", "adapter.js", loginUrl,
-            "小漫君", "保存在本机的自用拾光适配", LocalGeneration)
+            maintainer, "保存在本机的自用拾光适配", LocalGeneration)
         val data = LocalEduAdapterPackage.encode(adapter, source)
         check(root(context).mkdirs() || root(context).isDirectory)
         val file = record(context, key)

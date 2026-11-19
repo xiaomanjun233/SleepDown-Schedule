@@ -4,7 +4,7 @@ import json
 import secrets
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-PROMPT = """这是我在本机搭建的虚构教务测试页。请先读取当前页面并核实页面实际请求的课程接口，再用 TASK_WORKSPACE 写一个标准拾光异步 IIFE 临时脚本；读取文件取得 sha256，用 EDIT 精确修改一段注释后，再用最新 sha256 调用 EDU_WORKSPACE.RUN_SCRIPT。脚本应 fetch 已核实的接口，按真实返回值依次保存配置、作息和课程，全部成功才通知完成。结合接口返回值复核，只生成导入预览，不保存课表、不建议保存适配。最后报告真实运行码、课程数与周次。如果工具没有执行成功，请报告实际错误，不要用文字声称成功。"""
+PROMPT = """这是我在本机搭建的虚构教务测试页。请先读取当前页面并核实页面实际请求的课程接口，再用 TASK_WORKSPACE 写一个标准拾光异步 IIFE 临时脚本；读取文件取得 sha256，用 EDIT 精确修改一段注释后，调用 RUN_SCRIPT，传入 path、最新 expectedHash 和 timeSlots="api"。脚本应 fetch 已核实的接口，按真实返回值保存配置、作息和课程，全部成功才通知完成。只生成导入预览，不保存课表。如果工具没有执行成功，请报告实际错误。"""
 
 PAGE = """<!doctype html><html lang="zh-CN"><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">

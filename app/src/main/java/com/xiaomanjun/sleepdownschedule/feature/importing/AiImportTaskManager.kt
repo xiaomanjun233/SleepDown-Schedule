@@ -8,6 +8,8 @@ import com.xiaomanjun.sleepdownschedule.model.ImportDraftSource
 import android.content.Context
 import android.os.PowerManager
 import com.xiaomanjun.sleepdownschedule.CourseScheduleApp
+import com.xiaomanjun.sleepdownschedule.data.ai.FreeAiQuotaGate
+import com.xiaomanjun.sleepdownschedule.data.ai.FreeAiQuotaKind
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -32,7 +34,8 @@ object AiImportTaskManager {
         val taskId: String, val config: ScheduleConfigEntity, val settings: AiImportSettings,
         val interaction: AiImportInteraction, val request: RestartableAiImportRequest? = null,
         val acceptsFiles: Boolean = false,
-        val resumeRevision: ((Context, AiEduImportProgress, String) -> String)? = null
+        val resumeRevision: ((Context, AiEduImportProgress, String) -> String)? = null,
+        val quotaActionId: String = taskId
     )
     @Volatile private var restartableImport: RestartableImport? = null
     private val inboxes = ConcurrentHashMap<String, com.xiaomanjun.sleepdownschedule.core.ai.AgentMailbox<com.xiaomanjun.sleepdownschedule.feature.agent.AgentTaskInput>>()
@@ -126,7 +129,8 @@ object AiImportTaskManager {
             ) == null) return null
         return startTask(context, current.copy(userPrompt = instruction.trim(), requestInstructions = prompt,
             conversationTurns = archiveImportTurn(current)), task.config, task.settings,
-            preserveCheckpointsFromTaskId = taskId, acceptsFiles = task.acceptsFiles, request = task.request ?: return null)
+            preserveCheckpointsFromTaskId = taskId, acceptsFiles = task.acceptsFiles,
+            quotaActionId = task.quotaActionId, request = task.request ?: return null)
     }
 
     /** Classification uses the existing transport/service, but never enters course JSON repair. */
@@ -169,6 +173,9 @@ object AiImportTaskManager {
         return taskId
     }
 
+    private fun activeQuotaActionId(interaction: AiImportInteraction): String? =
+        restartableImport?.takeIf { it.interaction === interaction }?.quotaActionId
+
     fun startFileImport(
         context: Context,
         file: AiImportFile,
@@ -182,7 +189,8 @@ object AiImportTaskManager {
                 file = file,
                 settings = settings,
                 onHttpPhase = onHttpPhase,
-                onReasoningUpdate = onReasoningUpdate
+                onReasoningUpdate = onReasoningUpdate,
+                quotaActionId = activeQuotaActionId(interaction)
             )
         }
     }
@@ -193,7 +201,13 @@ object AiImportTaskManager {
     ): String {
         val appContext = context.applicationContext
         return startTask(appContext, initialProgress, scheduleConfig, settings) { interaction, phase, reasoning ->
-            AiScheduleImportService(appContext, interaction).parseScheduleFiles(files, settings, phase, reasoning)
+            AiScheduleImportService(appContext, interaction).parseScheduleFiles(
+                files = files,
+                settings = settings,
+                onHttpPhase = phase,
+                onReasoningUpdate = reasoning,
+                quotaActionId = activeQuotaActionId(interaction)
+            )
         }
     }
 
@@ -212,7 +226,8 @@ object AiImportTaskManager {
                 sourceName = sourceName,
                 settings = settings,
                 onHttpPhase = onHttpPhase,
-                onReasoningUpdate = onReasoningUpdate
+                onReasoningUpdate = onReasoningUpdate,
+                quotaActionId = activeQuotaActionId(interaction)
             )
         }
     }
@@ -230,9 +245,17 @@ object AiImportTaskManager {
         eduWorkspace: AiEduWorkspace? = null
     ): String {
         val appContext = context.applicationContext
-        val taskId = startTask(appContext, initialProgress, scheduleConfig, settings, acceptsFiles = eduWorkspace != null) { interaction, onHttpPhase, onReasoningUpdate ->
+        val taskId = startTask(
+            appContext,
+            initialProgress,
+            scheduleConfig,
+            settings,
+            acceptsFiles = eduWorkspace != null,
+            alreadyConsumedQuota = { eduWorkspace?.hasConsumedQuota == true }
+        ) { interaction, onHttpPhase, onReasoningUpdate ->
             interaction.checkActive()
-            eduWorkspace?.bindTask(checkNotNull(restartableImport?.takeIf { it.interaction === interaction }) { "教务任务已切换" }.taskId)
+            val bound = checkNotNull(restartableImport?.takeIf { it.interaction === interaction }) { "教务任务已切换" }
+            eduWorkspace?.bindTask(bound.taskId)
             AiScheduleImportService(appContext, interaction).parseScheduleCapturedPage(
                 text = text,
                 screenshots = screenshots,
@@ -242,7 +265,8 @@ object AiImportTaskManager {
                 onHttpPhase = onHttpPhase,
                 onReasoningUpdate = onReasoningUpdate,
                 readCurrentPage = readCurrentPage,
-                eduWorkspace = eduWorkspace
+                eduWorkspace = eduWorkspace,
+                quotaActionId = bound.quotaActionId
             )
         }
         eduWorkspace?.bindTask(taskId)
@@ -255,12 +279,14 @@ object AiImportTaskManager {
         instruction: String,
         baseProgress: AiEduImportProgress,
         settings: AiImportSettings,
-        historicalEntryId: String?
+        historicalEntryId: String?,
+        quotaActionId: String? = null
     ): String {
         val inheritedInbox = inboxes[baseProgress.taskId]
         val appContext = context.applicationContext
         cancelPreviousAttempt(appContext)
         val taskId = UUID.randomUUID().toString()
+        val effectiveQuotaActionId = quotaActionId ?: taskId
         val interaction = AiImportInteraction(instruction)
         if (inheritedInbox != null) interaction.mailbox = inheritedInbox
         interaction.mailbox.resume()
@@ -274,8 +300,9 @@ object AiImportTaskManager {
         interaction.onUsage = { usage -> AiEduImportProgressSession.updateUsage(taskId, usage) }
         restartableImport = RestartableImport(taskId, baseDraft.config, settings, interaction,
             resumeRevision = { nextContext, progress, prompt ->
-                startRevision(nextContext, baseDraft, prompt, progress, settings, historicalEntryId)
-            })
+                startRevision(nextContext, baseDraft, prompt, progress, settings, historicalEntryId, effectiveQuotaActionId)
+            },
+            quotaActionId = effectiveQuotaActionId)
         AiEduImportProgressSession.beginTask(
             baseProgress.copy(
                 taskId = taskId,
@@ -307,7 +334,8 @@ object AiImportTaskManager {
                     baseProgress = baseProgress,
                     settings = settings,
                     historicalEntryId = historicalEntryId,
-                    interaction = interaction
+                    interaction = interaction,
+                    quotaActionId = effectiveQuotaActionId
                 )
             } catch (cancelled: CancellationException) {
                 throw cancelled
@@ -326,6 +354,8 @@ object AiImportTaskManager {
         settings: AiImportSettings,
         preserveCheckpointsFromTaskId: String? = null,
         acceptsFiles: Boolean = false,
+        quotaActionId: String? = null,
+        alreadyConsumedQuota: () -> Boolean = { false },
         request: RestartableAiImportRequest
     ): String {
         val inheritedInbox = preserveCheckpointsFromTaskId?.let(inboxes::get)
@@ -334,6 +364,7 @@ object AiImportTaskManager {
         val appContext = context.applicationContext
         cancelPreviousAttempt(appContext)
         val taskId = UUID.randomUUID().toString()
+        val effectiveQuotaActionId = quotaActionId ?: taskId
         val interaction = AiImportInteraction(initialProgress.requestInstructions.ifBlank { initialProgress.userPrompt })
         interaction.supplementalFiles = inheritedFiles
         if (inheritedInbox != null) interaction.mailbox = inheritedInbox
@@ -346,7 +377,15 @@ object AiImportTaskManager {
         interaction.onExecutionStep = { step -> recordExecutionStep(taskId, step) }
         interaction.onProgressReport = { report -> recordProgressReport(taskId, report) }
         interaction.onUsage = { usage -> AiEduImportProgressSession.updateUsage(taskId, usage) }
-        restartableImport = RestartableImport(taskId, scheduleConfig, settings, interaction, request, acceptsFiles)
+        restartableImport = RestartableImport(
+            taskId = taskId,
+            config = scheduleConfig,
+            settings = settings,
+            interaction = interaction,
+            request = request,
+            acceptsFiles = acceptsFiles,
+            quotaActionId = effectiveQuotaActionId
+        )
         AiEduImportProgressSession.beginTask(
             initialProgress.copy(
                 taskId = taskId,
@@ -370,7 +409,15 @@ object AiImportTaskManager {
         pendingTasks.clear()
         pendingTasks[taskId] = {
             try {
-                runTask(appContext, taskId, scheduleConfig, settings, interaction) { phase, reasoning ->
+                runTask(
+                    context = appContext,
+                    taskId = taskId,
+                    scheduleConfig = scheduleConfig,
+                    settings = settings,
+                    interaction = interaction,
+                    quotaActionId = effectiveQuotaActionId,
+                    alreadyConsumedQuota = alreadyConsumedQuota
+                ) { phase, reasoning ->
                     request(interaction, phase, reasoning)
                 }
             } catch (cancelled: CancellationException) {
@@ -416,6 +463,8 @@ object AiImportTaskManager {
         scheduleConfig: ScheduleConfigEntity,
         settings: AiImportSettings,
         interaction: AiImportInteraction,
+        quotaActionId: String,
+        alreadyConsumedQuota: () -> Boolean,
         request: suspend ((AiImportHttpPhase) -> Unit, (String) -> Unit) -> Result<AiScheduleImportResult>
     ) = coroutineScope {
         appendMainStep(taskId, context, "正在整理输入", "正在整理课程材料，准备发送给 AI。")
@@ -502,6 +551,20 @@ object AiImportTaskManager {
         }
         val parsed = repaired.draft
         currentCoroutineContext().ensureActive()
+        if (!alreadyConsumedQuota()) {
+            runCatching {
+                FreeAiQuotaGate.consumeIfManagedFree(
+                    context = context,
+                    isManagedFree = AiProviderPresets.isManagedFreeId(settings.profile.id),
+                    kind = FreeAiQuotaKind.IMPORT,
+                    actionId = quotaActionId
+                )
+            }.onFailure { error ->
+                if (error is CancellationException) throw error
+                finishFailure(context, taskId, error, "每日免费 AI 额度校验失败")
+                return@coroutineScope
+            }
+        }
         appendMainStep(taskId, context, "正在生成导入预览", "课程数据已通过校验，正在整理导入预览。")
         val preview = parsed.copy(source = ImportDraftSource.AI_EDU)
         AiEduImportProgressSession.publishCheckpoint(taskId, preview, "识别结果").getOrElse { error ->
@@ -535,7 +598,8 @@ object AiImportTaskManager {
         baseProgress: AiEduImportProgress,
         settings: AiImportSettings,
         historicalEntryId: String?,
-        interaction: AiImportInteraction
+        interaction: AiImportInteraction,
+        quotaActionId: String = taskId
     ): Unit = coroutineScope {
         appendMainStep(taskId, context, "正在整理输入", "正在整理修改要求、现有课程和原始材料。")
         val onHttpPhase: (AiImportHttpPhase) -> Unit = { phase ->
@@ -562,7 +626,8 @@ object AiImportTaskManager {
                     val selected = progress.selectedDraft() ?: throw CancellationException("导入阶段已失效")
                     if (historicalEntryId != null) AiImportHistoryStore.update(context, historicalEntryId, selected, progress)
                     else AiImportHistoryStore.updateMatching(context, baseDraft, selected, progress)
-                })
+                },
+                quotaActionId = quotaActionId)
             .getOrElse { error ->
                 finishFailure(context, taskId, error, "AI 修改请求失败")
                 return@coroutineScope
@@ -683,7 +748,7 @@ object AiImportTaskManager {
             screenshotPreviews = completed.screenshotPreviews + next.allImages.mapIndexed { index, image -> RenderedPageImage(completed.screenshotPreviews.size + index, image.mimeType, image.base64) },
             conversationTurns = archiveImportTurn(completed, draft))
         AiEduImportProgressSession.update(updated)
-        runRevision(context, taskId, draft, next.text, completed.copy(screenshotPreviews = updated.screenshotPreviews), settings, historicalEntryId, interaction)
+        runRevision(context, taskId, draft, next.text, completed.copy(screenshotPreviews = updated.screenshotPreviews), settings, historicalEntryId, interaction, quotaActionId = UUID.randomUUID().toString())
         return true
     }
 

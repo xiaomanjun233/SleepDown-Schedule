@@ -18,10 +18,16 @@ internal fun WebView.installShiguangRuntime(
     }
 }
 
-internal fun WebView.injectShiguangRuntime(desktopMode: Boolean, documentUrl: String? = url) {
+internal fun WebView.injectShiguangRuntime(
+    desktopMode: Boolean,
+    documentUrl: String? = url,
+    postForwardEnabled: Boolean = false
+) {
     postInterceptors[this]?.documentUrl = documentUrl
     evaluateJavascript(ShiguangBridgeInitScript, null)
-    if (desktopMode) evaluateJavascript(ShiguangPostInterceptScript, null)
+    // Match Nexio: keep native browser POST handling enabled by default so capturing-phase
+    // hooks and X-WebView-Post-Id headers do not interfere with SSO/WAF form scripts.
+    if (desktopMode && postForwardEnabled) evaluateJavascript(ShiguangPostInterceptScript, null)
 }
 
 internal fun WebView.uninstallShiguangRuntime() {

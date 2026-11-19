@@ -321,6 +321,8 @@ import com.xiaomanjun.sleepdownschedule.feature.importing.AiImportSettingsStore
 import com.xiaomanjun.sleepdownschedule.feature.importing.ImportPreviewPage
 import com.xiaomanjun.sleepdownschedule.feature.importing.IcsScheduleCodec
 import com.xiaomanjun.sleepdownschedule.feature.importing.PendingImportSetupStore
+import com.xiaomanjun.sleepdownschedule.feature.importing.AiEduScriptUploader
+import com.xiaomanjun.sleepdownschedule.feature.importing.EduVerifiedScript
 import com.xiaomanjun.sleepdownschedule.feature.importing.CloudShortCode
 import com.xiaomanjun.sleepdownschedule.feature.importing.ScheduleJsonShare
 import com.xiaomanjun.sleepdownschedule.feature.importing.loadAiImportFile
@@ -911,6 +913,7 @@ fun CourseScheduleAppUi(
     var pendingImportedSetupId by remember(context) {
         mutableStateOf(PendingImportSetupStore.consume(context))
     }
+    var retryEduScript by remember { mutableStateOf<EduVerifiedScript?>(null) }
     // Daily "a holiday is coming" prompt. It asks at most once a day, stays quiet for holidays the
     // user already planned, and never competes with the agreement/notice surfaces.
     var upcomingHoliday by remember { mutableStateOf<UpcomingHoliday?>(null) }
@@ -937,16 +940,20 @@ fun CourseScheduleAppUi(
     }
     LaunchedEffect(aiFinalImportRequest) {
         aiFinalImportRequest?.let { request ->
+            if (!AiEduImportProgressSession.claimFinalImportRequest(request)) return@let
+            retryEduScript = null
             importHandoff.retainSource(visualState, state.courses, request.draft.courses.size)
             viewModel.importDraft(request.draft, request.createNewSchedule, onFailure = {
                 importHandoff.submissionFailed()
+                retryEduScript = request.verifiedScript
                 homeDialog = HomeDialog.ConfirmImport(request.draft,
                     errorMessage = it.message ?: "课表保存失败，请重试")
             }) { scheduleId ->
+                request.verifiedScript?.let {
+                    AiEduScriptUploader.saveAndUploadInBackground(context, it, it.schoolNameForAutomaticSave())
+                }
                 pendingImportedSetupId = scheduleId
             }
-            // Claim this one-shot request now so Activity recreation cannot import it twice.
-            AiEduImportProgressSession.consumeFinalImportRequest()
         }
     }
     LaunchedEffect(externalIcsUri, state.loaded, versionWelcomeVisible) {
@@ -4090,6 +4097,7 @@ fun CourseScheduleAppUi(
         enabled = state.loaded && renderedHomeDialog == null
     )
 
+
     // Dialog-based dialogs for all other types (including EditCourse without a source card)
     renderedHomeDialog?.let { dialog ->
         if (dialog !is HomeDialog.EditWallpaper && (dialog !is HomeDialog.EditCourse || dialog.course == null)) {
@@ -4098,6 +4106,7 @@ fun CourseScheduleAppUi(
                 submitting = importHandoff.submitting, errorMessage = dialog.errorMessage,
                 onContentMountedChanged = importHandoff::onPreviewMountedChanged,
                 onBack = {
+                    retryEduScript = null
                     importHandoff.clearExpectedCourses()
                     dismissHomeDialog()
                     if (dialog.returnToImport) openUnifiedImportPage()
@@ -4105,11 +4114,18 @@ fun CourseScheduleAppUi(
                 onDraftChanged = { homeDialog = dialog.copy(draft = it, errorMessage = null) },
                 onConfirm = { createNew ->
                     if (importHandoff.beginSubmission(visualState, state.courses, dialog.draft.courses.size)) {
+                        val verified = retryEduScript?.takeIf { it.matchesDraft(dialog.draft) }
                         homeDialog = dialog.copy(errorMessage = null)
                         viewModel.importDraft(dialog.draft, createNew, onFailure = {
                             importHandoff.submissionFailed()
                             homeDialog = dialog.copy(errorMessage = it.message ?: "保存失败，请重试")
-                        }) { scheduleId -> pendingImportedSetupId = scheduleId }
+                        }) { scheduleId ->
+                            retryEduScript = null
+                            verified?.let {
+                                AiEduScriptUploader.saveAndUploadInBackground(context, it, it.schoolNameForAutomaticSave())
+                            }
+                            pendingImportedSetupId = scheduleId
+                        }
                     }
                 })
         } else if (dialog is HomeDialog.ApplyCourseEdit) {

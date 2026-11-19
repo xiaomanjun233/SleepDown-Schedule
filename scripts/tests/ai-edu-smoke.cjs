@@ -9,6 +9,8 @@ const root = path.resolve(__dirname, '../..');
 const nativeDir = path.join(root, 'app/src/main/java/com/xiaomanjun/sleepdownschedule/feature/importing/shiguang');
 const wrapper = fs.readFileSync(path.join(nativeDir, 'ShiguangScriptExecution.kt'), 'utf8').match(/= """([\s\S]*?)"""\.trimIndent/)[1];
 const init = fs.readFileSync(path.join(nativeDir, 'ShiguangBridgeProtocol.kt'), 'utf8').match(/ShiguangBridgeInitScript = """([\s\S]*?)"""\.trimIndent/)[1];
+const trial = fs.readFileSync(path.join(nativeDir, '../AiEduScriptTrial.kt'), 'utf8')
+    .match(/EduScriptTrialRunner = """([\s\S]*?)"""\.trimIndent/)[1];
 const source = fs.readFileSync(path.join(root, 'scripts/fixtures/ai-edu-smoke-reference.js'), 'utf8');
 const python = process.platform === 'win32' ? spawnSync('py', ['-3', '-c', 'import sys; print(sys.executable)'],
     { encoding: 'utf8', windowsHide: true }) : { status: 0, stdout: 'python3' };
@@ -44,7 +46,7 @@ const server = spawn(python.stdout.trim(),
         } }
     };
     window.window = window;
-    Object.assign(window, { AbortController, setTimeout, clearTimeout });
+    Object.assign(window, { AbortController, setTimeout, clearTimeout, console });
     const context = vm.createContext(window);
     vm.runInContext(init, context);
     const rendered = wrapper.replace('${JSONObject.quote(executionToken)}', JSON.stringify('smoke-task'))
@@ -59,5 +61,29 @@ const server = spawn(python.stdout.trim(),
     assert.deepEqual(JSON.parse(JSON.parse(saves[0].payload).configJsonString), expected.config);
     assert.deepEqual(JSON.parse(JSON.parse(saves[1].payload).timeSlotsJsonString), expected.timeSlots);
     assert.deepEqual(JSON.parse(JSON.parse(saves[2].payload).coursesJsonString), expected.courses);
-    console.log('AI edu smoke passed: loopback API → production isolated JS → ordered Bridge payloads, 2 courses/4 periods/18 weeks.');
+
+    const bridgeBeforeTrial = window.shiguangBridgePromise;
+    delete window._shiguangNativeBridge;
+    async function runTrial(script) {
+        const start = vm.runInContext(trial + `("smokeTrial", ${JSON.stringify(script)})`, context);
+        assert.equal(start, 'started');
+        const run = window.smokeTrial;
+        try {
+            const deadline = Date.now() + 3000;
+            while (!run.result.done && Date.now() < deadline) await new Promise(resolve => setTimeout(resolve, 10));
+            assert.equal(run.result.done, true, 'Trial did not settle');
+            assert.equal(window.shiguangBridgePromise, bridgeBeforeTrial);
+            return JSON.parse(run.snapshot());
+        } finally {
+            run.dispose();
+            delete window.smokeTrial;
+        }
+    }
+    const capture = await runTrial(source);
+    assert.deepEqual(JSON.parse(capture.config), expected.config);
+    assert.deepEqual(JSON.parse(capture.slots), expected.timeSlots);
+    assert.deepEqual(JSON.parse(capture.courses), expected.courses);
+    assert.equal((await runTrial("await shiguangBridgePromise.saveImportedCourses('[]');")).code, 'BRIDGE_PAYLOAD');
+    assert.equal((await runTrial("throw Error('fixture failure');")).error, 'fixture failure');
+    console.log('AI edu smoke passed: native adapter and bridge-free trial both read 2 courses/4 periods/18 weeks.');
 })().catch(error => { console.error(error); process.exitCode = 1; }).finally(() => server.kill());

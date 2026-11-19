@@ -51,6 +51,7 @@ import com.xiaomanjun.sleepdownschedule.domain.schedule.withCompatiblePeriodGrid
 import com.xiaomanjun.sleepdownschedule.core.remoteconfig.*
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.*
 import com.xiaomanjun.sleepdownschedule.core.ui.scaffold.settingsVisualConfig
+import com.xiaomanjun.sleepdownschedule.core.ui.theme.appUsesDarkTheme
 import com.xiaomanjun.sleepdownschedule.feature.agent.*
 import com.xiaomanjun.sleepdownschedule.feature.home.day.*
 import com.xiaomanjun.sleepdownschedule.glass.ui.*
@@ -345,6 +346,28 @@ private fun AiImportChatPreview(
             )
         }
     }
+}
+
+@Composable
+internal fun EduScriptSaveDialog(
+    initialName: String,
+    config: ScheduleConfigEntity,
+    onDismiss: () -> Unit,
+    onConfirm: (String) -> Unit
+) {
+    ControlNameDialog(
+        title = "保存并上传教务脚本",
+        initialName = initialName,
+        dark = appUsesDarkTheme(config),
+        maxLength = AiEduScriptUploader.MaxSchoolLength,
+        onDismiss = onDismiss,
+        onConfirm = onConfirm,
+        placeholder = "学校全称",
+        message = "脚本将保存到我的适配，并上传到 SleepDown。",
+        confirmLabel = "保存并上传",
+        requireNonBlank = true,
+        autoFocus = initialName.isBlank()
+    )
 }
 
 @Composable

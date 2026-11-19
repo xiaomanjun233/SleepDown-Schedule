@@ -15,7 +15,6 @@ import android.os.Looper
 import android.view.PixelCopy
 import android.util.Base64
 import android.webkit.WebView
-import androidx.annotation.MainThread
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
@@ -184,29 +183,6 @@ private val EduPageDeepExtractScript = """
   });
 })()
 """.trimIndent()
-
-/** Bind on Main, invoke on a worker. DOM access returns to Main without blocking the UI caller. */
-@MainThread
-internal fun eduPageMaterialReader(webView: WebView, stillCurrent: () -> Boolean): () -> String {
-    check(Looper.myLooper() == Looper.getMainLooper()) { "页面材料读取器必须在主线程创建" }
-    val reference = java.lang.ref.WeakReference(webView)
-    val expectedUrl = webView.url
-    return {
-        check(Looper.myLooper() != Looper.getMainLooper()) { "页面材料读取必须在后台执行" }
-        kotlinx.coroutines.runBlocking {
-            kotlinx.coroutines.withTimeoutOrNull(12_000) {
-                withContext(Dispatchers.Main.immediate) {
-                    val target = requireNotNull(reference.get()) { "教务页面已关闭，请返回页面重新导入" }
-                    require(stillCurrent() && target.url == expectedUrl) { "教务页面已变化，请重新确认导入材料" }
-                    val snapshot = evaluateWebViewJson(target, EduPageDeepExtractScript)?.let(::decodeEduPageSnapshot)
-                        ?: throw IllegalArgumentException("当前教务页面无法读取")
-                    require(stillCurrent() && target.url == expectedUrl) { "读取期间教务页面已变化，请重新导入" }
-                    compactEduPageSnapshots(listOf(snapshot)).take(60_000)
-                }
-            } ?: error("读取网页超过12秒，请返回页面检查后重试")
-        }
-    }
-}
 
 /** Deduplicate capture blocks, never course rows: identical cells can be real repeated lessons. */
 internal fun compactEduPageSnapshots(snapshots: List<EduPageSnapshot>): String {

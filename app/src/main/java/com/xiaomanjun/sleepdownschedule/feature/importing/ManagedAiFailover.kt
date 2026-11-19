@@ -2,9 +2,14 @@ package com.xiaomanjun.sleepdownschedule.feature.importing
 
 import android.content.Context
 import com.xiaomanjun.sleepdownschedule.core.remoteconfig.SleepDownRemoteConfig
+import com.xiaomanjun.sleepdownschedule.data.ai.FreeAiQuotaExceededException
+import com.xiaomanjun.sleepdownschedule.data.ai.FreeAiQuotaGate
+import com.xiaomanjun.sleepdownschedule.data.ai.FreeAiQuotaKind
+import com.xiaomanjun.sleepdownschedule.data.ai.FreeAiVersionBlockedException
 import java.io.IOException
 import java.io.InterruptedIOException
 import java.net.SocketTimeoutException
+import java.util.UUID
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
@@ -22,6 +27,7 @@ internal class ManagedAiAttempt {
 internal fun Throwable.canFailoverManagedAi(): Boolean {
     val chain = generateSequence(this) { it.cause }.take(16).toList()
     if (chain.any { it is CancellationException || it is InterruptedException ||
+            it is FreeAiQuotaExceededException || it is FreeAiVersionBlockedException ||
             (it is InterruptedIOException && it !is SocketTimeoutException) }) return false
     val response = chain.filterIsInstance<AiServiceResponseException>().firstOrNull()
     if (response != null) return response.httpStatus in setOf(401, 403, 404, 408, 429) ||
@@ -55,6 +61,9 @@ internal suspend fun <T> withManagedAiFailover(
     context: Context,
     settings: AiImportSettings,
     requiresVision: Boolean = false,
+    quotaKind: FreeAiQuotaKind = FreeAiQuotaKind.IMPORT,
+    quotaActionId: String? = null,
+    consumeQuota: Boolean = true,
     onSwitch: (AiImportSettings) -> Unit = {},
     block: suspend (AiImportSettings, ManagedAiAttempt) -> T
 ): T {
@@ -62,5 +71,20 @@ internal suspend fun <T> withManagedAiFailover(
     val candidates = ManagedAiRemoteConfig.managedFreeCandidates(context, settings.profile.reasoningEffort)
         .filter { !requiresVision || AiProviderPresets.supportsImageInput(it.profile) }
     require(candidates.isNotEmpty() || !requiresVision) { "每日免费 AI 暂无可用的图片模型，请切换视觉模型。" }
+    require(candidates.isNotEmpty()) { "每日免费 AI 暂无可用配置，请刷新配置或使用自己的 API Key。" }
+    if (consumeQuota) {
+        FreeAiQuotaGate.consumeIfManagedFree(
+            context = context,
+            isManagedFree = true,
+            kind = quotaKind,
+            actionId = quotaActionId ?: UUID.randomUUID().toString()
+        )
+    } else {
+        FreeAiQuotaGate.ensureAvailableIfManagedFree(
+            context = context,
+            isManagedFree = true,
+            kind = quotaKind
+        )
+    }
     return runManagedAiCandidates(candidates, onSwitch, block)
 }

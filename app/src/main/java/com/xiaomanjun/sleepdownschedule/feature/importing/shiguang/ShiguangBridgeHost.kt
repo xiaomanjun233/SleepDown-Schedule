@@ -99,15 +99,15 @@ internal class ShiguangBridgeHost(
 
     fun onMessageReceived(jsonString: String) {
         if (closed) return
-        val currentTask = task
-        val expectedGeneration = currentTask?.generation ?: generation
+        val currentTask = task ?: return
+        val expectedGeneration = currentTask.generation
         val message = try {
             ShiguangBridgeJson.decodeFromString(ShiguangBridgeMessage.serializer(), jsonString)
         } catch (error: Exception) {
             postForTask(expectedGeneration) { onMessage("拾光 Bridge 消息无效：${error.message}") }
             return
         }
-        if (message.executionToken != currentTask?.executionToken) {
+        if (message.executionToken != currentTask.executionToken) {
             message.callbackId?.let { reject(it, "此脚本所属导入任务已结束，旧结果未交付", expectedGeneration) }
             return
         }
@@ -120,7 +120,7 @@ internal class ShiguangBridgeHost(
                         // terminal messages. Release their busy state without treating warnings
                         // such as a failed optional bell request as a completed import.
                         if (payload.message.trim().trimEnd('。', '.') in setOf("用户取消了导入", "导入已取消")) {
-                            currentTask?.capture?.invoke(Result.failure(IllegalStateException("用户取消了导入")))
+                            currentTask.capture?.invoke(Result.failure(IllegalStateException("用户取消了导入")))
                             task = null
                             _running.value = false
                         }
@@ -130,7 +130,7 @@ internal class ShiguangBridgeHost(
                 "showAlert" -> parsePayload<ShiguangShowAlertPayload>(message).let { payload ->
                     val callbackId = requireCallbackId(message)
                     postForTask(expectedGeneration) {
-                        (currentTask?.interaction ?: onInteractionRequest)(
+                        (currentTask.interaction ?: onInteractionRequest)(
                             EduBridgeInteractionRequest.Alert(
                                 requestId = callbackId,
                                 title = payload.titleText.ifBlank { "提示" },
@@ -143,7 +143,7 @@ internal class ShiguangBridgeHost(
 
                 "showPrompt" -> parsePayload<ShiguangShowPromptPayload>(message).let { payload ->
                     val callbackId = requireCallbackId(message)
-                    currentTask?.promptAnswer?.let { answer ->
+                    currentTask.promptAnswer?.let { answer ->
                         currentTask.promptAnswer = null
                         resolve(
                             callbackId,
@@ -152,7 +152,7 @@ internal class ShiguangBridgeHost(
                         return@let
                     }
                     postForTask(expectedGeneration) {
-                        (currentTask?.interaction ?: onInteractionRequest)(
+                        (currentTask.interaction ?: onInteractionRequest)(
                             EduBridgeInteractionRequest.Prompt(
                                 requestId = callbackId,
                                 title = payload.titleText.ifBlank { "请输入" },
@@ -171,7 +171,7 @@ internal class ShiguangBridgeHost(
                         payload.itemsJsonString
                     )
                     postForTask(expectedGeneration) {
-                        (currentTask?.interaction ?: onInteractionRequest)(
+                        (currentTask.interaction ?: onInteractionRequest)(
                             EduBridgeInteractionRequest.SingleSelection(
                                 requestId = callbackId,
                                 title = payload.titleText.ifBlank { "请选择" },
@@ -183,27 +183,27 @@ internal class ShiguangBridgeHost(
                 }
 
                 "saveImportedCourses" -> parsePayload<ShiguangSaveCoursesPayload>(message).let { payload ->
-                    requireNotNull(currentTask) { "当前没有正在执行的拾光导入任务" }.session.stageCourses(payload.coursesJsonString)
+                    currentTask.session.stageCourses(payload.coursesJsonString)
                     resolve(requireCallbackId(message), "true", expectedGeneration)
                 }
 
                 "saveCourseConfig" -> parsePayload<ShiguangSaveConfigPayload>(message).let { payload ->
-                    requireNotNull(currentTask) { "当前没有正在执行的拾光导入任务" }.session.stageCourseConfig(payload.configJsonString)
+                    currentTask.session.stageCourseConfig(payload.configJsonString)
                     resolve(requireCallbackId(message), "true")
                 }
 
                 "savePresetTimeSlots" -> parsePayload<ShiguangSaveTimeSlotsPayload>(message).let { payload ->
-                    requireNotNull(currentTask) { "当前没有正在执行的拾光导入任务" }.session.stageTimeSlots(payload.timeSlotsJsonString)
+                    currentTask.session.stageTimeSlots(payload.timeSlotsJsonString)
                     resolve(requireCallbackId(message), "true")
                 }
 
                 "saveComboSchedule" -> parsePayload<ShiguangSaveComboSchedulePayload>(message).let { payload ->
-                    requireNotNull(currentTask) { "当前没有正在执行的拾光导入任务" }.session.stageComboSchedule(payload.comboScheduleJsonString)
+                    currentTask.session.stageComboSchedule(payload.comboScheduleJsonString)
                     resolve(requireCallbackId(message), "true", expectedGeneration)
                 }
 
                 "notifyTaskCompletion" -> {
-                    val draft = requireNotNull(currentTask) { "当前没有正在执行的拾光导入任务" }.session.complete()
+                    val draft = currentTask.session.complete()
                     postForTask(expectedGeneration) {
                         task = null
                         _running.value = false
@@ -214,7 +214,7 @@ internal class ShiguangBridgeHost(
                 "notifyExecutionFinished" -> postForTask(expectedGeneration) {
                     task = null
                     _running.value = false
-                    currentTask?.capture?.invoke(Result.failure(IllegalStateException("脚本执行结束，未提交完整课程；请核对登录状态和脚本输出")))
+                    currentTask.capture?.invoke(Result.failure(IllegalStateException("脚本执行结束，未提交完整课程；请核对登录状态和脚本输出")))
                 }
 
                 else -> throw IllegalArgumentException("未知拾光 Bridge action：${message.action}")
@@ -226,7 +226,7 @@ internal class ShiguangBridgeHost(
             if (message.callbackId == null) postForTask(expectedGeneration) {
                 task = null
                 _running.value = false
-                currentTask?.capture?.invoke(Result.failure(IllegalArgumentException(detail)))
+                currentTask.capture?.invoke(Result.failure(IllegalArgumentException(detail)))
             }
         }
     }

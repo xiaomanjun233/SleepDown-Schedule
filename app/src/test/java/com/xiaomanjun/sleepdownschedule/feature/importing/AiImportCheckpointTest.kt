@@ -244,7 +244,7 @@ class AiImportCheckpointTest {
         start("live")
         val checkpoint = session.publishCheckpoint("live", draft("保留的工作区")).getOrThrow()
         session.requestFinalImport(draft("历史课表"), false)
-        session.consumeFinalImportRequest()
+        assertTrue(session.claimFinalImportRequest(checkNotNull(session.finalImportRequest.value)))
         assertNull(session.finalImportRequest.value)
         assertEquals(checkpoint.id, session.progress.value!!.selectedCheckpointId)
         assertEquals("保留的工作区", session.previewDraft.value!!.courses.single().name)

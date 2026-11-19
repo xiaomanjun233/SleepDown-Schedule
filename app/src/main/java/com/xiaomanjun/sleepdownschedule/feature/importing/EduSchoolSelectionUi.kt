@@ -33,12 +33,15 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
@@ -72,6 +75,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
@@ -104,6 +108,7 @@ import com.xiaomanjun.sleepdownschedule.core.ui.settings.SettingsDivider
 import com.xiaomanjun.sleepdownschedule.core.ui.settings.SettingsGroup
 import com.xiaomanjun.sleepdownschedule.core.ui.settings.SettingsGroupPosition
 import com.xiaomanjun.sleepdownschedule.core.ui.settings.SettingsNavigationRow
+import com.xiaomanjun.sleepdownschedule.core.ui.settings.SleepDownLiquidDropdownPreference
 import com.xiaomanjun.sleepdownschedule.feature.home.*
 import com.xiaomanjun.sleepdownschedule.feature.importing.shiguang.*
 import com.xiaomanjun.sleepdownschedule.glass.GlassBackdropDomain
@@ -126,6 +131,8 @@ fun EduSchoolPickerScreen(
     availableAdapters: List<EduAdapter>? = null,
     adapterBadge: (EduAdapter) -> String? = { null },
     listHeader: (@Composable () -> Unit)? = null,
+    onRequestRefresh: (() -> Unit)? = null,
+    repoSourceEnabled: Boolean = true,
     onSelect: (EduAdapter) -> Unit
 ) {
     val context = LocalContext.current
@@ -135,13 +142,21 @@ fun EduSchoolPickerScreen(
     var editSource by remember { mutableStateOf<String?>(null) }
     var localError by remember { mutableStateOf<String?>(null) }
     var confirmLocalDelete by remember { mutableStateOf(false) }
-    fun select(adapter: EduAdapter) {
-        if (adapter.isSelfUseAdapter()) { localSelection = adapter; localError = null }
-        else onSelect(adapter)
+    var repoSourceIndex by remember(warehouseGeneration) {
+        mutableIntStateOf(if (ShiguangWarehouseUpdater.isGithubSource(context)) 1 else 0)
     }
     val adapters = availableAdapters ?: remember(warehouseGeneration, localVersion) {
         runCatching { ShiguangWarehouse.loadVisibleAdapters(context) }
             .getOrDefault(emptyList())
+    }
+    val effectiveBadge: (EduAdapter) -> String? = remember(adapterBadge) {
+        { adapter ->
+            adapterBadge(adapter) ?: when {
+                adapter.isSelfUseAdapter() || adapter.isAiEduImportTool() || adapter.isGeneralEduTool() -> null
+                adapter.isAiDockAdapter() -> "AI 生成"
+                else -> null
+            }
+        }
     }
     var adapterChoices by remember { mutableStateOf<List<EduAdapter>?>(null) }
     var query by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf("") }
@@ -150,6 +165,7 @@ fun EduSchoolPickerScreen(
         val sorted = adapters.sortedWith(
             compareBy<EduAdapter> { it.school.initial.ifBlank { "#" } }
                 .thenBy { it.school.name }
+                .thenBy { it.source.ordinal }
                 .thenBy { it.adapterName }
         )
         if (keyword.isBlank()) sorted else sorted.filter {
@@ -162,26 +178,44 @@ fun EduSchoolPickerScreen(
                     it.maintainer.contains(keyword, ignoreCase = true)
         }
     }
+    val showDualRepoSection = availableAdapters == null && query.isBlank()
     EduSchoolIndexedSelectScreen(
         state = state,
         backdrop = backdrop,
         adapters = filtered,
-        adapterBadge = adapterBadge,
+        adapterBadge = effectiveBadge,
         listHeader = listHeader,
+        repoSourceIndex = repoSourceIndex.takeIf { showDualRepoSection },
+        repoSourceEnabled = repoSourceEnabled,
+        onRepoSourceSelected = { index ->
+            if (index != repoSourceIndex) {
+                val target = if (index == 1) ShiguangWarehouseUpdater.GITHUB_REPO_URL
+                    else ShiguangWarehouseUpdater.GITEE_REPO_URL
+                ShiguangWarehouseUpdater.setRepoUrl(context, target)
+                repoSourceIndex = index
+                onRequestRefresh?.invoke()
+            }
+        },
         query = query,
         onQueryChange = { query = it },
+        onManageLocalAdapter = { adapter ->
+            localSelection = adapter
+            localError = null
+            editSource = null
+            confirmLocalDelete = false
+        },
         onSelect = { school ->
             val matches = adapters.filter { it.school.id == school.id }
             if (matches.size == 1) {
-                select(matches.single())
+                onSelect(matches.single())
             } else if (matches.isNotEmpty()) {
                 adapterChoices = matches
             }
         }
     )
     adapterChoices?.let { choices ->
-        var selectedAdapterId by remember(choices) { mutableStateOf<String?>(null) }
-        val selectedAdapter = choices.firstOrNull { it.adapterId == selectedAdapterId }
+        var selectedAdapterKey by remember(choices) { mutableStateOf<String?>(null) }
+        val selectedAdapter = choices.firstOrNull { it.toIntentKey() == selectedAdapterKey }
         LiquidAlertDialog(
             title = choices.first().school.name,
             message = "",
@@ -198,7 +232,7 @@ fun EduSchoolPickerScreen(
                     onClick = {
                         selectedAdapter?.let { adapter ->
                             adapterChoices = null
-                            select(adapter)
+                            onSelect(adapter)
                         }
                     }
                 )
@@ -210,12 +244,13 @@ fun EduSchoolPickerScreen(
             messageContent = {
                 Column(modifier = Modifier.selectableGroup(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     choices.forEach { adapter ->
+                        val intentKey = adapter.toIntentKey()
                         EduAdapterChoiceCard(
                             adapter = adapter,
-                            badgeText = adapterBadge(adapter),
-                            selected = adapter.adapterId == selectedAdapterId,
+                            badgeText = effectiveBadge(adapter),
+                            selected = intentKey == selectedAdapterKey,
                             config = state.config,
-                            onClick = { selectedAdapterId = adapter.adapterId }
+                            onClick = { selectedAdapterKey = intentKey }
                         )
                     }
                 }
@@ -246,7 +281,8 @@ fun EduSchoolPickerScreen(
                 LiquidAlertAction("保存并测试", LiquidAlertActionStyle.Primary, dismissOnClick = false, onClick = {
                     localScope.launch {
                         runCatching { kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
-                            LocalEduAdapterStore.save(context, selected.school.name, selected.importUrl, editSource.orEmpty(), selected.adapterId)
+                            LocalEduAdapterStore.save(context, selected.school.name, selected.importUrl, editSource.orEmpty(),
+                                selected.adapterId, selected.maintainer)
                         } }.onSuccess { updated -> localVersion++; localSelection = null; editSource = null; onSelect(updated) }
                             .onFailure { localError = it.message ?: "保存失败" }
                     }
@@ -257,8 +293,7 @@ fun EduSchoolPickerScreen(
                         LocalEduAdapterStore.source(context, selected)
                     } }.onSuccess { editSource = it }.onFailure { localError = "脚本读取失败" } }
                 }),
-                LiquidAlertAction("删除", LiquidAlertActionStyle.Secondary, dismissOnClick = false, onClick = { confirmLocalDelete = true }),
-                LiquidAlertAction("打开教务", LiquidAlertActionStyle.Primary, onClick = { localSelection = null; onSelect(selected) }))
+                LiquidAlertAction("删除", LiquidAlertActionStyle.Destructive, dismissOnClick = false, onClick = { confirmLocalDelete = true }))
         )
     }
 }
@@ -299,6 +334,7 @@ private data class EduSchoolSection(
     val local: Boolean = false
 )
 
+
 @Composable
 fun EduSchoolIndexedSelectScreen(
     state: AppState,
@@ -308,6 +344,10 @@ fun EduSchoolIndexedSelectScreen(
     onQueryChange: (String) -> Unit,
     adapterBadge: (EduAdapter) -> String? = { null },
     listHeader: (@Composable () -> Unit)? = null,
+    repoSourceIndex: Int? = null,
+    repoSourceEnabled: Boolean = true,
+    onRepoSourceSelected: (Int) -> Unit = {},
+    onManageLocalAdapter: ((EduAdapter) -> Unit)? = null,
     onSelect: (EduSchool) -> Unit
 ) {
     val window = LocalActivity.current?.window
@@ -371,9 +411,10 @@ fun EduSchoolIndexedSelectScreen(
         }
     }
     val hasListHeader = listHeader != null
-    val sectionPositions = remember(sections, hasListHeader) {
+    val hasDualRepoSection = repoSourceIndex != null
+    val sectionPositions = remember(sections, hasListHeader, hasDualRepoSection) {
         buildMap {
-            var index = if (hasListHeader) 1 else 0
+            var index = (if (hasListHeader) 1 else 0) + (if (hasDualRepoSection) 2 else 0)
             sections.forEach { section ->
                 section.letter?.let { put(it, index) }
                 index += 1 + section.schools.size
@@ -510,6 +551,25 @@ fun EduSchoolIndexedSelectScreen(
                 if (listHeader != null) {
                     item(key = "edu-school-header") { listHeader() }
                 }
+                if (hasDualRepoSection) {
+                    item(key = "dual-repo-heading") {
+                        GlassPreferenceCategory("仓库")
+                    }
+                    item(key = "dual-repo-group") {
+                        SettingsGroup(backdrop, state.config, topSpacing = 0.dp) {
+                            SleepDownLiquidDropdownPreference(
+                                items = listOf("Gitee", "GitHub"),
+                                selectedIndex = checkNotNull(repoSourceIndex),
+                                title = "适配仓库源",
+                                summary = "同步拾光适配库和 AI 教务脚本库",
+                                backdrop = listBackdrop,
+                                config = state.config,
+                                enabled = repoSourceEnabled,
+                                onSelectedIndexChange = onRepoSourceSelected
+                            )
+                        }
+                    }
+                }
                 if (adapters.isEmpty()) {
                     item { Text("没有找到学校适配资源", color = MaterialTheme.colorScheme.error) }
                 } else {
@@ -525,11 +585,25 @@ fun EduSchoolIndexedSelectScreen(
                                 index == section.schools.lastIndex -> SettingsGroupPosition.Last
                                 else -> SettingsGroupPosition.Middle
                             }
+                            val schoolBadge = when {
+                                section.local -> "本地"
+                                group.adapters.all(EduAdapter::isAiDockAdapter) -> "AI 生成"
+                                group.adapters.any(EduAdapter::isAiDockAdapter) -> "含 AI 生成"
+                                else -> group.adapters.firstNotNullOfOrNull(adapterBadge)
+                            }
                             SettingsGroup(backdrop, state.config, topSpacing = 0.dp, position = position) {
+                                val localAdapter = group.adapters.singleOrNull()?.takeIf { it.isSelfUseAdapter() }
                                 SettingsNavigationRow(
                                     title = group.school.name,
                                     subtitle = group.adapters.joinToString(" / ") { it.adapterName },
-                                    badgeText = if (section.local) "本地" else group.adapters.firstNotNullOfOrNull(adapterBadge),
+                                    badgeText = schoolBadge,
+                                    trailingAction = if (localAdapter != null && onManageLocalAdapter != null) {
+                                        {
+                                            IconButton(onClick = { onManageLocalAdapter(localAdapter) }) {
+                                                Icon(painterResource(R.drawable.ic_more_horizontal), contentDescription = "管理本地适配")
+                                            }
+                                        }
+                                    } else null,
                                     onClick = { onSelect(group.school) }
                                 )
                                 if (index < section.schools.lastIndex) SettingsDivider()

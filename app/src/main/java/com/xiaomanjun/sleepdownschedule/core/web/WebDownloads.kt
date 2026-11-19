@@ -17,9 +17,9 @@ import androidx.core.content.ContextCompat
 import androidx.core.net.toUri
 import com.xiaomanjun.sleepdownschedule.core.ui.interaction.findActivity
 
-internal fun WebView.enableSleepDownDownloads() {
+internal fun WebView.enableSleepDownDownloads(cookies: CookieManager) {
     setDownloadListener { url, userAgent, contentDisposition, mimeType, _ ->
-        handleSleepDownDownload(url, userAgent, contentDisposition, mimeType)
+        handleSleepDownDownload(url, userAgent, contentDisposition, mimeType, cookies)
     }
 }
 
@@ -27,7 +27,8 @@ private fun WebView.handleSleepDownDownload(
     url: String,
     userAgent: String?,
     contentDisposition: String?,
-    mimeType: String?
+    mimeType: String?,
+    cookies: CookieManager
 ) {
     when {
         url.startsWith("blob:", ignoreCase = true) -> Toast.makeText(context, "请用浏览器下载此文件", Toast.LENGTH_SHORT).show()
@@ -38,7 +39,7 @@ private fun WebView.handleSleepDownDownload(
         }
         else -> {
             if (context.ensureLegacyDownloadPermission()) {
-                context.handleSleepDownWebDownload(url, userAgent, contentDisposition, mimeType, this.url)
+                context.handleSleepDownWebDownload(url, userAgent, contentDisposition, mimeType, this.url, cookies)
             }
         }
     }
@@ -78,7 +79,8 @@ private fun Context.handleSleepDownWebDownload(
     userAgent: String?,
     contentDisposition: String?,
     mimeType: String?,
-    referer: String? = null
+    referer: String?,
+    cookies: CookieManager
 ) {
     val uri = runCatching { url.toUri() }.getOrNull()
     if (uri == null || (uri.scheme != "http" && uri.scheme != "https")) {
@@ -99,7 +101,8 @@ private fun Context.handleSleepDownWebDownload(
                 fallbackContentDisposition = contentDisposition,
                 userAgent = userAgent,
                 referer = referer,
-                mimeType = mimeType
+                mimeType = mimeType,
+                cookies = cookies
             )
         }.onSuccess {
             appContext.showToastOnMain("已保存到下载目录")
@@ -114,9 +117,9 @@ private fun Context.downloadWebFile(
     fallbackContentDisposition: String?,
     userAgent: String?,
     referer: String?,
-    mimeType: String?
+    mimeType: String?,
+    cookies: CookieManager
 ) {
-    val cookies = CookieManager.getInstance()
     val connection = openWebDownloadConnection(url, userAgent, referer, cookies::getCookie) { target, value ->
         cookies.setCookie(target, value)
     }

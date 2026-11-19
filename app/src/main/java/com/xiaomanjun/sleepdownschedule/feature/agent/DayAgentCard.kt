@@ -183,9 +183,10 @@ fun TodayAgentCard(
     }
     val foreground = LocalAdaptiveGlass.current.contentColor
     val cardIsDark = !glassUsesLightStyle(state.config)
+    val freeAiChatHint = rememberFreeAiChatCardHint(hasApiKey)
     val presentation = rememberDayAgentPresentation(
         facts, collapsed, cardIsDark, weatherEnabled, weatherRepository.hasLocationPermission(),
-        hasApiKey, showApiKeyHint
+        hasApiKey, showApiKeyHint, assistantStatusHint = freeAiChatHint
     )
     val cardVisual = presentation.visual
     val activityAccent = presentation.accent

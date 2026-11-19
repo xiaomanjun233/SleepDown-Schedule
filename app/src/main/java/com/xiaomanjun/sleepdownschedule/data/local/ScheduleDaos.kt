@@ -192,8 +192,8 @@ interface AgentDao {
     @Query("SELECT * FROM agent_messages WHERE scheduleId = :scheduleId ORDER BY sessionDate, createdAt, id")
     suspend fun getMessages(scheduleId: Int): List<AgentMessageEntity>
 
-    @Query("SELECT * FROM agent_messages WHERE scheduleId = :scheduleId AND sessionDate = :date AND status = 'READY' ORDER BY createdAt DESC, id DESC LIMIT :limit")
-    suspend fun getRecentMessages(scheduleId: Int, date: String, limit: Int): List<AgentMessageEntity>
+    @Query("SELECT * FROM agent_messages WHERE scheduleId = :scheduleId AND sessionDate = :date AND status = 'READY' ORDER BY createdAt, id")
+    suspend fun getReadySessionMessages(scheduleId: Int, date: String): List<AgentMessageEntity>
 
     @Query("UPDATE agent_messages SET status = :status WHERE id = :messageId")
     suspend fun updateMessageStatus(messageId: Long, status: String)

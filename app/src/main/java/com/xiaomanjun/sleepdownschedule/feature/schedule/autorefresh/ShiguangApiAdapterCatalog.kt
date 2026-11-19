@@ -6,6 +6,8 @@ import com.xiaomanjun.sleepdownschedule.feature.importing.EduAdapter
 import com.xiaomanjun.sleepdownschedule.feature.importing.EduSchool
 import com.xiaomanjun.sleepdownschedule.feature.importing.ShiguangWarehouse
 import com.xiaomanjun.sleepdownschedule.feature.importing.isAiEduImportTool
+import com.xiaomanjun.sleepdownschedule.feature.importing.localEduSchoolId
+import com.xiaomanjun.sleepdownschedule.feature.importing.publishedAiEduAdapter
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.security.MessageDigest
@@ -52,6 +54,7 @@ internal object ShiguangApiAdapterCatalog {
 
     fun find(adapters: List<EduAdapter>, schoolId: String, adapterId: String): EduAdapter? =
         adapters.firstOrNull { it.school.id == schoolId && it.adapterId == adapterId }
+            ?: if (schoolId == localEduSchoolId(adapterId)) publishedAiEduAdapter(adapters, adapterId) else null
 
     suspend fun resolveScript(context: Context, adapter: EduAdapter): String {
         val source = ShiguangWarehouse.resolveScript(context, adapter)

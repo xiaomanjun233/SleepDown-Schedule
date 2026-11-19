@@ -5,7 +5,11 @@ import android.os.Build
 import android.util.Log
 import android.view.View
 import android.view.autofill.AutofillManager
+import android.webkit.CookieManager
 import android.webkit.WebView
+import androidx.webkit.WebSettingsCompat
+import androidx.webkit.WebViewCompat
+import androidx.webkit.WebViewFeature
 
 internal fun normalizeEduUrl(input: String): String {
     val trimmed = input.trim()
@@ -15,17 +19,53 @@ internal fun normalizeEduUrl(input: String): String {
             trimmed.equals("https://", ignoreCase = true) -> ""
         trimmed.startsWith("http://", ignoreCase = true) ||
             trimmed.startsWith("https://", ignoreCase = true) -> trimmed
-        ExplicitUriScheme.containsMatchIn(trimmed) -> ""
+        !HostPortPrefix.containsMatchIn(trimmed) && ExplicitUriScheme.containsMatchIn(trimmed) -> ""
         else -> "https://$trimmed"
     }
 }
 
+private val HostPortPrefix = Regex(
+    "^(?:\\[[^\\]]+]|localhost|[^/:?#]+\\.[^/:?#]+):\\d+(?:[/?#]|$)",
+    RegexOption.IGNORE_CASE
+)
 private val ExplicitUriScheme = Regex("^[A-Za-z][A-Za-z0-9+.-]*:")
 
-@SuppressLint("SetJavaScriptEnabled")
-internal fun WebView.configureEduImportSecurity() {
-    settings.allowContentAccess = false
-    settings.allowFileAccess = false
+/** Call before navigation or configuring the view, including its popups. */
+@SuppressLint("RequiresFeature")
+internal fun WebView.eduImportCookieManager(standaloneImport: Boolean): CookieManager {
+    if (standaloneImport && WebViewFeature.isFeatureSupported(WebViewFeature.MULTI_PROFILE)) {
+        // Auto refresh restores saved credentials into the default profile. The interactive
+        // browser has its own persistent cookies and site storage managed by Chromium.
+        WebViewCompat.setProfile(this, "sleepdown_edu_import")
+        return WebViewCompat.getProfile(this).cookieManager
+    }
+    return CookieManager.getInstance()
+}
+
+@SuppressLint("SetJavaScriptEnabled", "RequiresFeature")
+internal fun WebView.configureEduImportSecurity(): Boolean {
+    settings.allowContentAccess = true
+    settings.allowFileAccess = true
+    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) {
+        @Suppress("DEPRECATION")
+        settings.allowUniversalAccessFromFileURLs = true
+        @Suppress("DEPRECATION")
+        settings.allowFileAccessFromFileURLs = true
+    }
+    if (WebViewFeature.isFeatureSupported(WebViewFeature.REQUESTED_WITH_HEADER_ALLOW_LIST)) {
+        return runCatching {
+            WebSettingsCompat.setRequestedWithHeaderOriginAllowList(settings, emptySet())
+            true
+        }.getOrElse { error ->
+            Log.w(
+                "EduWebView",
+                "requestedWith strip failed: ${error.javaClass.simpleName}: ${error.message}"
+            )
+            false
+        }
+    }
+    Log.i("EduWebView", "requestedWith strip unsupported by current WebView")
+    return false
 }
 
 /**

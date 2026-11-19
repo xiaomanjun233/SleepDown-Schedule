@@ -44,7 +44,8 @@ internal object AgentImportRuntime {
     suspend fun revise(context: Context, draft: ImportDraft, instruction: String,
         history: AiEduImportProgress, settings: AiImportSettings, interaction: AiImportInteraction?,
         onReasoning: (String) -> Unit,
-        onCheckpoint: (ImportDraft, String) -> Unit = { _, _ -> }): AiScheduleImportResult {
+        onCheckpoint: (ImportDraft, String) -> Unit = { _, _ -> },
+        quotaActionId: String? = null): AiScheduleImportResult {
         val workspace = workspace(draft)
         val facts = buildDayAgentFacts(workspace.courses, workspace.periods, workspace.config, LocalDate.now(), null)
         var reasoning = ""
@@ -82,7 +83,8 @@ internal object AgentImportRuntime {
                 "未提及的课程、字段、周次、节次和真实来源铃声全部保留。" +
                 "缺少定位信息时直接向用户提问。结果只是待确认交付物，不得宣称已经保存。",
             importWorkspace = jsonWorkspace, imageAttachments = sourceImages,
-            sourceWorkspace = AiMaterialWorkspace.fromPages(history.attachmentTitle, history.pageText, history.screenshotPreviews))
+            sourceWorkspace = AiMaterialWorkspace.fromPages(history.attachmentTitle, history.pageText, history.screenshotPreviews),
+            quotaActionId = quotaActionId)
         interaction?.checkActive()
         val finalFacts = buildDayAgentFacts(jsonWorkspace.draft.courses, jsonWorkspace.draft.periods,
             jsonWorkspace.draft.config, facts.date, null)

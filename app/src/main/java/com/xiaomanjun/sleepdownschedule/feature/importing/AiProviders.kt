@@ -124,7 +124,8 @@ internal class OpenAiCompatibleChatProvider : AiScheduleImportProvider {
         input: AiScheduleInput,
         networkContext: AiImportNetworkContext
     ): AiProviderTextResult {
-        val userContent: JsonElement = when (input) {
+        val liveEdu = networkContext.inputType == "EDU_WORKSPACE"
+        val userContent: JsonElement = if (liveEdu) JsonPrimitive(EduWorkspaceStartInstruction) else when (input) {
             is AiScheduleInput.ExtractedText -> JsonPrimitive(
                 aiSchedulePrompt() + "\n\n课表原文（${input.sourceName}）：\n" + input.text
             )
@@ -163,7 +164,7 @@ internal class OpenAiCompatibleChatProvider : AiScheduleImportProvider {
         val body = buildJsonObject {
             put("model", JsonPrimitive(config.model))
             val messages = buildJsonArray {
-                scheduleParserSystemMessage()
+                if (!liveEdu) scheduleParserSystemMessage()
                 add(buildJsonObject {
                     put("role", JsonPrimitive("user"))
                     put("content", userContent)
@@ -172,7 +173,7 @@ internal class OpenAiCompatibleChatProvider : AiScheduleImportProvider {
             put("messages", messages)
             val interactive = networkContext.inputType != "REPAIR"
             put("tools", JsonArray(buildList {
-                add(scheduleImportChatTool())
+                if (!liveEdu) add(scheduleImportChatTool())
                 if (interactive) add(askImportDetailsTool(responses = false))
             }))
             scheduleToolChoice(config, ScheduleImportToolName, allowProgressUpdates = interactive)?.let { put("tool_choice", it) }
@@ -180,7 +181,7 @@ internal class OpenAiCompatibleChatProvider : AiScheduleImportProvider {
             putChatOutputBudget(config)
         }
         val result = requestScheduleImport(config, body, networkContext)
-        return if (result.finishReason == "length") {
+        return if (!liveEdu && result.finishReason == "length") {
             continueTruncatedScheduleJson(
                 config,
                 body["messages"] ?: JsonArray(emptyList()),
@@ -366,7 +367,13 @@ internal class OpenAiResponsesProvider : AiScheduleImportProvider {
         input: AiScheduleInput,
         networkContext: AiImportNetworkContext
     ): AiProviderTextResult {
-        val content = buildJsonArray {
+        val liveEdu = networkContext.inputType == "EDU_WORKSPACE"
+        val content = if (liveEdu) buildJsonArray {
+            add(buildJsonObject {
+                put("type", "input_text")
+                put("text", EduWorkspaceStartInstruction)
+            })
+        } else buildJsonArray {
             add(buildJsonObject {
                 put("type", JsonPrimitive("input_text"))
                 put("text", JsonPrimitive(aiSchedulePrompt()))
@@ -439,7 +446,7 @@ internal class OpenAiResponsesProvider : AiScheduleImportProvider {
             putResponsesOutputBudget(config)
             val interactive = networkContext.inputType != "REPAIR"
             put("tools", JsonArray(buildList {
-                add(scheduleImportResponsesTool())
+                if (!liveEdu) add(scheduleImportResponsesTool())
                 if (interactive) add(askImportDetailsTool(responses = true))
             }))
             scheduleToolChoice(config, ScheduleImportToolName, allowProgressUpdates = interactive)?.let { put("tool_choice", it) }

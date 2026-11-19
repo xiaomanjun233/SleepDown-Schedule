@@ -13,6 +13,20 @@ internal class AgentContextPolicy(val windowTokens: Int = DefaultAgentContextTok
         val excerptChars: Int = 8_000,
     )
     val inputBudget = (windowTokens.coerceAtLeast(8_192) * 0.8).toInt()
+    fun project(
+        messages: List<JsonObject>,
+        responses: Boolean,
+        budget: Int = inputBudget,
+        history: ToolHistory = ToolHistory(),
+    ): ChatProjection = if (responses) ChatProjection(compactResponses(messages, budget, history), emptySet())
+        else compactChat(messages, budget, history)
+
+    fun requireFits(messages: List<JsonObject>, budget: Int = inputBudget) {
+        require(estimatedTokens(JsonArray(messages)) <= budget) {
+            "完整对话与材料超过当前模型的上下文窗口，请切换更大上下文的模型或开启新任务。"
+        }
+    }
+
     fun estimatedTokens(element: JsonElement): Int = when (element) {
         is JsonArray -> element.sumOf(::estimatedTokens)
         is JsonObject -> when (element["type"]?.jsonPrimitive?.contentOrNull) {

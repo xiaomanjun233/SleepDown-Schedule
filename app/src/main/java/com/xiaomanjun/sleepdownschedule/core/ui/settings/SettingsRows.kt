@@ -53,6 +53,7 @@ import com.itos.coui.icons.CouiIcons
 import com.xiaomanjun.sleepdownschedule.LiveUpdateChipTextMode
 import com.xiaomanjun.sleepdownschedule.NotificationMode
 import com.xiaomanjun.sleepdownschedule.ScheduleConfigEntity
+import com.xiaomanjun.sleepdownschedule.core.ui.controls.ConicGlowProgressRing
 import com.xiaomanjun.sleepdownschedule.core.ui.controls.LiquidControlToggle
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.DialogButtonRole
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.DialogLiquidButton
@@ -94,6 +95,7 @@ fun SettingsNavigationRow(
     enabled: Boolean = true,
     minHeight: Dp? = null,
     badgeColor: ComposeColor = MaterialTheme.colorScheme.primary,
+    trailingAction: (@Composable () -> Unit)? = null,
     onClick: () -> Unit
 ) {
     val neutralSelection = MaterialTheme.colorScheme.onSurface
@@ -132,6 +134,7 @@ fun SettingsNavigationRow(
                             .padding(horizontal = 9.dp, vertical = 4.dp)
                     )
                 }
+                trailingAction?.invoke()
             },
             onClick = onClick
         )
@@ -176,6 +179,7 @@ fun SettingsNavigationRow(
             )
             Spacer(Modifier.width(8.dp))
         }
+        trailingAction?.invoke()
         Text(">", style = MaterialTheme.typography.headlineSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }
@@ -475,6 +479,72 @@ fun SettingsInfoRow(title: String, body: String, badgeText: String? = null) {
     ) {
         PreferenceLabel(title, badgeText)
         Text(body, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, lineHeight = 18.sp)
+    }
+}
+
+@Composable
+fun SettingsConicQuotaRow(
+    title: String,
+    centerLabel: String,
+    progress: Float,
+    accent: ComposeColor,
+    darkSurface: Boolean,
+    subtitle: String? = null,
+    glowEnabled: Boolean = true
+) {
+    val couiEnabled = LocalCouiSettingsEnabled.current
+    val couiColors = com.itos.coui.theme.CouiTheme.colorScheme
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(
+                if (couiEnabled || LocalGlassMiuixEnabled.current) settingsPreferencePadding()
+                else PaddingValues(horizontal = 20.dp, vertical = 14.dp)
+            ),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(16.dp)
+    ) {
+        Column(
+            modifier = Modifier.weight(1f),
+            verticalArrangement = Arrangement.spacedBy(3.dp, Alignment.CenterVertically)
+        ) {
+            if (couiEnabled) {
+                com.itos.coui.text.Text(
+                    text = title,
+                    kind = com.itos.coui.text.CouiTextKind.PreferenceTitle,
+                    color = couiColors.onSurface
+                )
+            } else {
+                Text(
+                    text = title,
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Medium
+                )
+            }
+            if (!subtitle.isNullOrBlank()) {
+                if (couiEnabled) {
+                    com.itos.coui.text.Text(
+                        text = subtitle,
+                        kind = com.itos.coui.text.CouiTextKind.PreferenceSummary,
+                        color = couiColors.onSurfaceVariant
+                    )
+                } else {
+                    Text(
+                        text = subtitle,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        lineHeight = 18.sp
+                    )
+                }
+            }
+        }
+        ConicGlowProgressRing(
+            progress = progress,
+            accent = accent,
+            centerText = centerLabel,
+            darkSurface = darkSurface,
+            glowEnabled = glowEnabled
+        )
     }
 }
 

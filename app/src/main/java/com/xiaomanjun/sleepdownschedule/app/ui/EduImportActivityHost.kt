@@ -111,6 +111,7 @@ open class EduImportActivityHost : ComponentActivity() {
                                 webContentBackdrop = eduWebContentBackdrop,
                                 webToolbarColor = webToolbarColor,
                                 useDetailTopPadding = true,
+                                standaloneImport = !refreshRequest,
                                 prepareWebView = { webView ->
                                     retainedSession?.let {
                                         AutoRefreshWebSession.restore(webView, it)?.let(sessionRestores::add)

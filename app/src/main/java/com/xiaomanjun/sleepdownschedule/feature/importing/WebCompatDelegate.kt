@@ -3,6 +3,7 @@ package com.xiaomanjun.sleepdownschedule.feature.importing
 import android.annotation.SuppressLint
 import android.view.View
 import android.webkit.ConsoleMessage
+import android.webkit.CookieManager
 import android.webkit.WebResourceRequest
 import android.webkit.WebResourceResponse
 import android.webkit.WebSettings
@@ -43,6 +44,53 @@ internal fun desktopZoomFactor(current: Float, expected: Float): Float? {
 internal fun isMissingEduScript(message: String): Boolean =
     MissingEduScript.containsMatchIn(message)
 
+internal fun shouldRecoverEduResourceHttpError(status: Int): Boolean =
+    status >= 400 && status != 404
+
+internal fun shouldAttemptEduResourceRecovery(
+    nativeRequestedWithStripped: Boolean,
+    isForMainFrame: Boolean,
+    status: Int,
+    requestUrl: String?,
+    pageUrl: String?,
+    requestHeaders: Map<String, String>
+): Boolean {
+    if (nativeRequestedWithStripped || isForMainFrame) return false
+    return shouldRecoverEduResourceHttpError(status) &&
+        eduWebOrigin(requestUrl) == eduWebOrigin(pageUrl) &&
+        isEduStyleOrScript(requestUrl.orEmpty(), requestHeaders)
+}
+
+internal fun shouldAttemptConsoleResourceRecovery(
+    nativeRequestedWithStripped: Boolean,
+    level: ConsoleMessage.MessageLevel?,
+    message: String?,
+    sourceId: String?,
+    pageUrl: String?
+): Boolean {
+    if (nativeRequestedWithStripped || level != ConsoleMessage.MessageLevel.ERROR) return false
+    return isMissingEduScript(message.orEmpty()) &&
+        (sourceId.isNullOrBlank() || eduWebOrigin(sourceId) == eduWebOrigin(pageUrl))
+}
+
+internal fun shouldReloadEntryOnDesktopToggle(
+    currentUrl: String?,
+    entryUrl: String?,
+    enablingDesktop: Boolean
+): Boolean {
+    val current = currentUrl?.takeIf { it.isNotBlank() } ?: return false
+    val entry = entryUrl?.takeIf { it.isNotBlank() } ?: return false
+    val currentOrigin = eduWebOrigin(current) ?: return false
+    val entryOrigin = eduWebOrigin(entry) ?: return false
+    // 绝不从入口回退去重放带一次性凭证的地址；当前处于认证/不可重放页面时退回干净入口。
+    if (eduWebHasOneTimeToken(entry)) return false
+    if (!EduLoginHistoryStore.shouldRememberUrl(current)) return true
+    if (currentOrigin == entryOrigin) return false
+    if (!enablingDesktop) return false
+    val host = runCatching { java.net.URI(current).host.orEmpty().lowercase(Locale.ROOT) }.getOrDefault("")
+    return host.startsWith("m.") || host.startsWith("mobile.") || host.startsWith("wap.")
+}
+
 private val MissingEduScript = Regex(
     """(\$|jQuery|beangle|bg) is not defined|requires jQuery""", RegexOption.IGNORE_CASE
 )
@@ -55,16 +103,19 @@ private val MissingEduScript = Regex(
 @SuppressLint("SetJavaScriptEnabled")
 internal class WebCompatDelegate(
     private val webView: WebView,
+    val cookies: CookieManager,
     desktop: Boolean,
-    private val onMessage: (String) -> Unit = {}
+    private val onMessage: (String) -> Unit = {},
+    private val nativeRequestedWithStripped: Boolean = false
 ) {
     private var desktopMode = desktop
     private val documentStartSupported = WebViewFeature.isFeatureSupported(WebViewFeature.DOCUMENT_START_SCRIPT)
     private var documentStartScript: ScriptHandler? = null
     private var viewportContent: String? = null
     private var disposed = false
+    private var initialEntryUrl: String? = null
     private var pendingInitialUrl: String? = null
-    private val resources = EduWebResourceInterceptor.create(webView.context)
+    private val resources = EduWebResourceInterceptor.create(webView.context, cookies)
     @Volatile private var userAgent = ""
     private var documentVersion = 0
     private var interacted = false
@@ -102,6 +153,7 @@ internal class WebCompatDelegate(
 
     fun loadInitialUrl(url: String) {
         if (disposed) return
+        initialEntryUrl = url
         pendingInitialUrl = url
         if (webView.width > 0) loadPendingUrl()
     }
@@ -123,7 +175,16 @@ internal class WebCompatDelegate(
         applyUserAgent()
         // Removing the registration affects future documents. Reload is required in both
         // directions so mobile gets the website's original viewport and no desktop observer.
-        if (pendingInitialUrl == null) webView.reload()
+        if (pendingInitialUrl == null) {
+            val entry = initialEntryUrl
+            when {
+                entry != null && shouldReloadEntryOnDesktopToggle(webView.url, entry, enabled) ->
+                    webView.loadUrl(entry)
+                // 没有入口可退时，绝不能 reload 认证回跳页：ticket / code 只有一次有效。
+                eduWebIsTransientAuthUrl(webView.url) -> Unit
+                else -> webView.reload()
+            }
+        }
     }
 
     fun onPageStarted() {
@@ -145,17 +206,28 @@ internal class WebCompatDelegate(
     }
 
     fun onHttpError(request: WebResourceRequest, status: Int) {
-        if (!request.isForMainFrame && status >= 400 &&
-            eduWebOrigin(request.url.toString()) == eduWebOrigin(webView.url) &&
-            isEduStyleOrScript(request.url.toString(), request.requestHeaders)) {
+        if (shouldAttemptEduResourceRecovery(
+                nativeRequestedWithStripped = nativeRequestedWithStripped,
+                isForMainFrame = request.isForMainFrame,
+                status = status,
+                requestUrl = request.url.toString(),
+                pageUrl = webView.url,
+                requestHeaders = request.requestHeaders
+            )
+        ) {
             recoverResources()
         }
     }
 
     fun onConsoleMessage(message: ConsoleMessage) {
-        if (message.messageLevel() == ConsoleMessage.MessageLevel.ERROR &&
-            isMissingEduScript(message.message().orEmpty()) &&
-            (message.sourceId().isNullOrBlank() || eduWebOrigin(message.sourceId()) == eduWebOrigin(webView.url))) {
+        if (shouldAttemptConsoleResourceRecovery(
+                nativeRequestedWithStripped = nativeRequestedWithStripped,
+                level = message.messageLevel(),
+                message = message.message(),
+                sourceId = message.sourceId(),
+                pageUrl = webView.url
+            )
+        ) {
             recoverResources()
         }
     }

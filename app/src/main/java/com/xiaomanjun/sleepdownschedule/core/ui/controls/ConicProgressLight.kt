@@ -8,6 +8,7 @@ import androidx.annotation.RequiresApi
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Canvas
 import androidx.compose.ui.graphics.Color
@@ -32,6 +33,17 @@ internal interface ConicProgressLight {
         alphaReveal: Float,
         shapeReveal: Float
     )
+
+    fun drawArc(
+        canvas: Canvas,
+        center: Offset,
+        radii: Size,
+        strokeWidth: Float,
+        headDegrees: Float,
+        trailDegrees: Float,
+        accent: Color,
+        alphaReveal: Float
+    )
 }
 
 @Composable
@@ -50,6 +62,15 @@ private class ConicProgressLightApi33 : ConicProgressLight {
     private val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         shader = runtimeShader
     }
+    private val arcShader by lazy(LazyThreadSafetyMode.NONE) {
+        runCatching { RuntimeShader(ArcConicLightShader) }.getOrNull()
+    }
+    private val arcPaint by lazy(LazyThreadSafetyMode.NONE) {
+        Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            shader = arcShader
+            blendMode = BlendMode.SCREEN
+        }
+    }
 
     override fun draw(
         canvas: Canvas,
@@ -62,6 +83,70 @@ private class ConicProgressLightApi33 : ConicProgressLight {
         shapeReveal: Float
     ) {
         if (trackWidth <= 0f || alphaReveal <= 0f) return
+        configureShader(trackWidth, progress, accent, alphaReveal, shapeReveal)
+        val lightWidth = trackWidth + 2f * ConicLightHorizontalPadding
+        val lightHeight = ConicLightHeight
+        val native = canvas.nativeCanvas
+        val saved = native.save()
+        val trackTop = (lightHeight - rowHeight) / 2f
+        val trackLeft = ConicLightHorizontalPadding
+        val trackRight = trackLeft + trackWidth
+        val trackBottom = trackTop + rowHeight
+        native.translate(-trackLeft, -trackTop)
+        if (!darkSurface) {
+            // Screen is nearly invisible against a pale card. Shade only outside the rail
+            // so the bar and its white head still receive the player's additive light.
+            val outer = native.save()
+            native.clipOutRect(trackLeft, trackTop, trackRight, trackBottom)
+            paint.blendMode = BlendMode.SRC_OVER
+            paint.alpha = (alphaReveal.coerceIn(0f, 1f) * LightSurfaceConeOpacity * 255f).roundToInt()
+            native.drawRect(0f, 0f, lightWidth, lightHeight, paint)
+            native.restoreToCount(outer)
+            native.clipRect(trackLeft, trackTop, trackRight, trackBottom)
+        }
+        paint.blendMode = BlendMode.SCREEN
+        paint.alpha = 255
+        native.drawRect(0f, 0f, lightWidth, lightHeight, paint)
+        native.restoreToCount(saved)
+    }
+
+    override fun drawArc(
+        canvas: Canvas,
+        center: Offset,
+        radii: Size,
+        strokeWidth: Float,
+        headDegrees: Float,
+        trailDegrees: Float,
+        accent: Color,
+        alphaReveal: Float
+    ) {
+        if (strokeWidth <= 0f || radii.minDimension <= 0f || trailDegrees <= 0f || alphaReveal <= 0f) return
+        val shader = arcShader ?: return
+        // Sample the original cone in straight-track coordinates. Each ring pixel has an
+        // angular distance behind the head and a perpendicular distance from the arc.
+        val shapeReveal = 0.38f
+        val sourceTrail = ConicLightSpotRadius * (0.1f + 0.5f * shapeReveal)
+        configureShader(sourceTrail, 1f, accent, 1f, shapeReveal)
+        shader.setInputShader("u_conic", runtimeShader)
+        shader.setFloatUniform("u_centerRadii", center.x, center.y, radii.width, radii.height)
+        shader.setFloatUniform(
+            "u_arc",
+            Math.toRadians(headDegrees.toDouble()).toFloat(),
+            Math.toRadians(trailDegrees.toDouble()).toFloat(),
+            strokeWidth,
+            alphaReveal.coerceIn(0f, 1f) * 0.64f
+        )
+        shader.setFloatUniform(
+            "u_lightSpace", ConicLightHorizontalPadding + sourceTrail, ConicLightHeight / 2f, sourceTrail, 10f
+        )
+        val edge = strokeWidth * 1.25f
+        canvas.nativeCanvas.drawRect(
+            center.x - radii.width - edge, center.y - radii.height - edge,
+            center.x + radii.width + edge, center.y + radii.height + edge, arcPaint
+        )
+    }
+
+    private fun configureShader(trackWidth: Float, progress: Float, accent: Color, alphaReveal: Float, shapeReveal: Float) {
         val safeProgress = progress.coerceIn(0f, 1f)
         val reveal = shapeReveal.coerceIn(0f, 1f)
         // ConicLightEffectRenderer modulates the cone below 20% progress with a
@@ -72,10 +157,7 @@ private class ConicProgressLightApi33 : ConicProgressLight {
         val heightFalloff = 0.6f * reveal * modulated
         val coneK = 0.2f * reveal
         val w0 = 0.008f * reveal
-        val lightWidth = trackWidth + 2f * ConicLightHorizontalPadding
-        val lightHeight = ConicLightHeight
-
-        runtimeShader.setFloatUniform("u_resolution", lightWidth, lightHeight)
+        runtimeShader.setFloatUniform("u_resolution", trackWidth + 2f * ConicLightHorizontalPadding, ConicLightHeight)
         runtimeShader.setFloatUniform(
             "u_startColor",
             accent.red * 255f,
@@ -106,29 +188,6 @@ private class ConicProgressLightApi33 : ConicProgressLight {
         )
         runtimeShader.setFloatUniform("u_coneParams", coneK, coneK, 2f, 1f)
         runtimeShader.setFloatUniform("u_miscParams", 1f, 0f, 0f, 0f)
-
-        val native = canvas.nativeCanvas
-        val saved = native.save()
-        val trackTop = (lightHeight - rowHeight) / 2f
-        val trackLeft = ConicLightHorizontalPadding
-        val trackRight = trackLeft + trackWidth
-        val trackBottom = trackTop + rowHeight
-        native.translate(-trackLeft, -trackTop)
-        if (!darkSurface) {
-            // Screen is nearly invisible against a pale card. Shade only outside the rail
-            // so the bar and its white head still receive the player's additive light.
-            val outer = native.save()
-            native.clipOutRect(trackLeft, trackTop, trackRight, trackBottom)
-            paint.blendMode = BlendMode.SRC_OVER
-            paint.alpha = (lightAlpha * LightSurfaceConeOpacity * 255f).roundToInt()
-            native.drawRect(0f, 0f, lightWidth, lightHeight, paint)
-            native.restoreToCount(outer)
-            native.clipRect(trackLeft, trackTop, trackRight, trackBottom)
-        }
-        paint.blendMode = BlendMode.SCREEN
-        paint.alpha = 255
-        native.drawRect(0f, 0f, lightWidth, lightHeight, paint)
-        native.restoreToCount(saved)
     }
 }
 
@@ -159,6 +218,29 @@ internal fun DrawScope.drawFallbackConicGlow(
     )
 }
 private const val LightSurfaceConeOpacity = 0.26f
+
+private const val ArcConicLightShader = """
+    uniform shader u_conic;
+    uniform float4 u_centerRadii;
+    uniform float4 u_arc;        // head angle, trail angle, stroke width, opacity
+    uniform float4 u_lightSpace; // source head x, source center y, trail length, normal scale
+
+    half4 main(float2 pixel) {
+        float2 radii = u_centerRadii.zw;
+        float2 p = (pixel - u_centerRadii.xy) / radii;
+        float across = (length(p) - 1.0) * min(radii.x, radii.y) / u_arc.z;
+        float feather = 1.0 - smoothstep(0.38, 1.1, abs(across));
+        if (feather <= 0.0) return half4(0.0);
+
+        float phase = mod(atan(p.y, p.x) - u_arc.x, 6.2831853) / u_arc.y;
+        if (phase >= 1.0) return half4(0.0);
+
+        float2 samplePoint = float2(u_lightSpace.x - phase * u_lightSpace.z,
+                                    u_lightSpace.y + across * u_lightSpace.w);
+        float opacity = u_arc.w * feather * (1.0 - smoothstep(0.72, 1.0, phase));
+        return u_conic.eval(samplePoint) * half(opacity);
+    }
+"""
 
 /** AGSL from com.coui.appcompat.seekbar.shader.ConicLightShaderParams. */
 private const val ConicLightShader = """

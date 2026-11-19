@@ -1,6 +1,7 @@
 package com.xiaomanjun.sleepdownschedule.feature.importing
 
 import com.xiaomanjun.sleepdownschedule.core.remoteconfig.*
+import com.xiaomanjun.sleepdownschedule.data.ai.FreeAiQuotaKind
 import com.xiaomanjun.sleepdownschedule.*
 import android.app.ActivityManager
 import android.content.Context
@@ -32,11 +33,19 @@ class AiScheduleImportService(
 ) {
     internal suspend fun parseScheduleFiles(
         files: List<AiImportFile>, settings: AiImportSettings,
-        onHttpPhase: (AiImportHttpPhase) -> Unit, onReasoningUpdate: (String) -> Unit = {}
+        onHttpPhase: (AiImportHttpPhase) -> Unit, onReasoningUpdate: (String) -> Unit = {},
+        quotaActionId: String? = null
     ): Result<AiScheduleImportResult> = withContext(Dispatchers.IO) {
         runCatching {
             val prepared = prepareAiImportBatch(context, files)
-            withManagedAiFailover(context, settings, requiresVision = prepared.images.isNotEmpty()) { candidate, attempt ->
+            withManagedAiFailover(
+                context,
+                settings,
+                requiresVision = prepared.images.isNotEmpty(),
+                quotaKind = FreeAiQuotaKind.IMPORT,
+                quotaActionId = quotaActionId,
+                consumeQuota = false
+            ) { candidate, attempt ->
                 interaction?.checkActive()
                 require(candidate.hasCredentialConfiguration()) { "请先配置 AI 账号" }
                 val config = candidate.toProviderConfig().normalizedForRequest()
@@ -62,11 +71,19 @@ class AiScheduleImportService(
         file: AiImportFile,
         settings: AiImportSettings,
         onHttpPhase: (AiImportHttpPhase) -> Unit,
-        onReasoningUpdate: (String) -> Unit = {}
+        onReasoningUpdate: (String) -> Unit = {},
+        quotaActionId: String? = null
     ): Result<AiScheduleImportResult> {
         return withContext(Dispatchers.IO) {
             runCatching {
-                withManagedAiFailover(context, settings, requiresVision = file.isImage || (file.isPdf && extractAiImportTextPreview(file, context) == null)) { candidate, attempt ->
+                withManagedAiFailover(
+                    context,
+                    settings,
+                    requiresVision = file.isImage || (file.isPdf && extractAiImportTextPreview(file, context) == null),
+                    quotaKind = FreeAiQuotaKind.IMPORT,
+                    quotaActionId = quotaActionId,
+                    consumeQuota = false
+                ) { candidate, attempt ->
                     interaction?.checkActive()
                     val phases: (AiImportHttpPhase) -> Unit = { attempt.observe(it); onHttpPhase(it) }
                     val reasoning: (String) -> Unit = { if (it.isNotBlank()) attempt.commit(); onReasoningUpdate(it) }
@@ -121,11 +138,19 @@ class AiScheduleImportService(
         sourceName: String,
         settings: AiImportSettings,
         onHttpPhase: (AiImportHttpPhase) -> Unit,
-        onReasoningUpdate: (String) -> Unit = {}
+        onReasoningUpdate: (String) -> Unit = {},
+        quotaActionId: String? = null
     ): Result<AiScheduleImportResult> {
         return withContext(Dispatchers.IO) {
             runCatching {
-                withManagedAiFailover(context, settings, requiresVision = false) { candidate, attempt ->
+                withManagedAiFailover(
+                    context,
+                    settings,
+                    requiresVision = false,
+                    quotaKind = FreeAiQuotaKind.IMPORT,
+                    quotaActionId = quotaActionId,
+                    consumeQuota = false
+                ) { candidate, attempt ->
                     interaction?.checkActive()
                     val phases: (AiImportHttpPhase) -> Unit = { attempt.observe(it); onHttpPhase(it) }
                     val reasoning: (String) -> Unit = { if (it.isNotBlank()) attempt.commit(); onReasoningUpdate(it) }
@@ -180,11 +205,23 @@ class AiScheduleImportService(
         onHttpPhase: (AiImportHttpPhase) -> Unit,
         onReasoningUpdate: (String) -> Unit = {},
         readCurrentPage: (() -> String)? = null,
-        eduWorkspace: AiEduWorkspace? = null
+        eduWorkspace: AiEduWorkspace? = null,
+        quotaActionId: String? = null
     ): Result<AiScheduleImportResult> {
         return withContext(Dispatchers.IO) {
             runCatching {
-                withManagedAiFailover(context, settings, requiresVision = screenshots.isNotEmpty()) { candidate, attempt ->
+                eduWorkspace?.bindQuotaConsumer(
+                    isManagedFree = AiProviderPresets.isManagedFreeId(settings.profile.id),
+                    actionId = quotaActionId
+                )
+                withManagedAiFailover(
+                    context,
+                    settings,
+                    requiresVision = screenshots.isNotEmpty(),
+                    quotaKind = FreeAiQuotaKind.IMPORT,
+                    quotaActionId = quotaActionId,
+                    consumeQuota = false
+                ) { candidate, attempt ->
                     interaction?.checkActive()
                     val phases: (AiImportHttpPhase) -> Unit = { attempt.observe(it); onHttpPhase(it) }
                     val reasoning: (String) -> Unit = { if (it.isNotBlank()) attempt.commit(); onReasoningUpdate(it) }
@@ -253,7 +290,8 @@ class AiScheduleImportService(
                     output = result.content,
                     routeMessage = routeMessage,
                     rawOutput = result.content,
-                    reasoningOutput = result.reasoning
+                    reasoningOutput = result.reasoning,
+                    verifiedEduDraft = result.verifiedEduDraft
                 )
             }
         }
@@ -296,7 +334,8 @@ class AiScheduleImportService(
         settings: AiImportSettings,
         onHttpPhase: (AiImportHttpPhase) -> Unit = {},
         onReasoningUpdate: (String) -> Unit = {},
-        onCheckpoint: (ImportDraft, String) -> Unit = { _, _ -> }
+        onCheckpoint: (ImportDraft, String) -> Unit = { _, _ -> },
+        quotaActionId: String? = null
     ): Result<AiScheduleImportResult> = withContext(Dispatchers.IO) {
         runCatching {
             require(settings.hasCredentialConfiguration()) { "请先在设置中配置 AI API Key" }
@@ -304,7 +343,7 @@ class AiScheduleImportService(
             require(settings.profile.defaultModel.isNotBlank()) { "请先配置模型名称" }
             interaction?.onHttpPhase = onHttpPhase
             com.xiaomanjun.sleepdownschedule.feature.agent.AgentImportRuntime.revise(
-                context, draft, instruction, history, settings, interaction, onReasoningUpdate, onCheckpoint)
+                context, draft, instruction, history, settings, interaction, onReasoningUpdate, onCheckpoint, quotaActionId)
         }
     }
 }

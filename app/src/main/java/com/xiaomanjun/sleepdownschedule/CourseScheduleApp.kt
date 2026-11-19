@@ -75,7 +75,14 @@ class CourseScheduleApp : Application() {
         AutoRefreshScheduleWorker.ensureSchedule(this, AutoRefreshScheduleStore.load(this))
         com.xiaomanjun.sleepdownschedule.feature.backup.webdav.WebDavAutomation.schedule(this)
         SleepDownRemoteConfig.initialize(this, applicationScope,
-            onBootstrapLoaded = ManagedAiRemoteConfig::activateResolvedProvider,
+            onBootstrapLoaded = { appContext ->
+                com.xiaomanjun.sleepdownschedule.data.ai.FreeAiQuotaStore.syncBootstrapPolicy(
+                    context = appContext,
+                    policy = SleepDownRemoteConfig.state.value.bootstrap?.aiQuota,
+                    serverTimeSeconds = SleepDownRemoteConfig.estimatedServerTimeSeconds()
+                )
+                ManagedAiRemoteConfig.activateResolvedProvider(appContext)
+            },
             onBootstrapUpdated = AiImportSettingsStore::notifyRemoteConfigChanged)
         ActivityTransitionCoordinator.install(this)
         if (BuildConfig.SLEEPDOWN_EXPERIMENTAL_FEATURES) ColorOSCourseBridge.install(this, database)

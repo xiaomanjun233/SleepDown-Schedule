@@ -183,10 +183,8 @@ internal class DayAgentChatTransport(
         } else put("temperature", 0.35)
         if (settings.usesOfficialOpenAiEndpoint()) put("store", false)
         val policy = com.xiaomanjun.sleepdownschedule.core.ai.AgentContextPolicy(settings.profile.contextWindowTokens)
-        val projection = policy.compactChat(messages)
-        require(policy.estimatedTokens(kotlinx.serialization.json.JsonArray(projection.messages)) <= policy.inputBudget) {
-            "上下文已超过本轮预算，请缩小任务范围；未自动删除用户要求"
-        }
+        val projection = policy.project(messages, responses = false)
+        policy.requireFits(projection.messages)
         put("messages", buildJsonArray { projection.messages.forEach(::add) })
         if (includeTools) {
             put(

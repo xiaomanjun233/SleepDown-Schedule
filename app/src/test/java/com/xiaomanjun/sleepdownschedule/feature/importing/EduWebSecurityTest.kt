@@ -18,6 +18,9 @@ class EduWebSecurityTest {
     @Test
     fun normalizesWebAddressesWithoutChangingExplicitHttpScheme() {
         assertEquals("https://jw.example.edu.cn", normalizeEduUrl("jw.example.edu.cn"))
+        assertEquals("https://jw.example.edu.cn:8080/jsxsd", normalizeEduUrl("jw.example.edu.cn:8080/jsxsd"))
+        assertEquals("https://203.0.113.10:8090/eams", normalizeEduUrl("203.0.113.10:8090/eams"))
+        assertEquals("https://localhost:8080", normalizeEduUrl("localhost:8080"))
         assertEquals("http://jw.example.edu.cn/login", normalizeEduUrl("http://jw.example.edu.cn/login"))
         assertEquals("https://jw.example.edu.cn/login", normalizeEduUrl("https://jw.example.edu.cn/login"))
     }
@@ -29,6 +32,7 @@ class EduWebSecurityTest {
         assertEquals("", normalizeEduUrl("file:///data/user/0/private.db"))
         assertEquals("", normalizeEduUrl("content://com.example.provider/item"))
         assertEquals("", normalizeEduUrl("javascript:alert(1)"))
+        assertEquals("", normalizeEduUrl("tel:10086"))
         assertEquals("", normalizeEduUrl("intent://login#Intent;scheme=test;end"))
     }
 

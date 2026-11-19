@@ -232,9 +232,11 @@ internal fun HomeAssistantHost(
                     .semantics { liveRegion = LiveRegionMode.Polite }
             )
         }
+        val freeAiChatHint = rememberFreeAiChatCardHint(hasAi)
         val presentation = rememberDayAgentPresentation(
             facts, false, true, weatherEnabled, weatherPermissionGranted, hasAi, !hasAi,
-            focusOverride = controller.reminder?.slot
+            focusOverride = controller.reminder?.slot,
+            assistantStatusHint = freeAiChatHint
         )
         val edgeInset = 8.dp
         val width = if (maxWidth >= 600.dp && maxHeight >= 480.dp) maxWidth * 0.5f else maxWidth - edgeInset * 2f

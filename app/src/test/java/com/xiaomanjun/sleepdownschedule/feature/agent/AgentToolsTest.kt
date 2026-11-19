@@ -785,7 +785,7 @@ class AgentToolsTest {
     }
 
     @Test
-    fun contextKeepsOnlyTheLastCompletedUserAssistantPair() {
+    fun contextKeepsCompletedExchangesForAnUnfinishedCourseTask() {
         fun message(id: Long, role: String, content: String, status: String) =
             AgentMessageEntity(
                 id = id,
@@ -797,16 +797,22 @@ class AgentToolsTest {
                 status = status
             )
 
-        val compact = compactAgentHistory(
+        val originalRequest = "添加一节线性代数。课程备注：" + "请保留原文".repeat(1_400)
+        val compact = agentConversationHistory(
             listOf(
-                message(1, "user", "上一轮问题", "READY"),
-                message(2, "assistant", "上一轮答案", "READY"),
-                message(3, "user", "失败问题", "FAILED"),
-                message(4, "user", "仍在发送的问题", "PENDING")
+                message(1, "user", originalRequest, "READY"),
+                message(2, "assistant", "周几上课？", "READY"),
+                message(3, "user", "周三", "READY"),
+                message(4, "assistant", "第几节？", "READY"),
+                message(5, "user", "第 3 节", "READY"),
+                message(6, "assistant", "在哪个教室？", "READY"),
+                message(7, "user", "失败问题", "FAILED"),
+                message(8, "user", "仍在发送的问题", "PENDING")
             )
         )
 
-        assertEquals(listOf("上一轮问题", "上一轮答案"), compact.map { it.content })
+        assertEquals(listOf(originalRequest, "周几上课？", "周三", "第几节？", "第 3 节", "在哪个教室？"),
+            compact.map { it.content })
     }
 
     @Test
