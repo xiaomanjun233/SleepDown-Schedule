@@ -2,6 +2,7 @@ package com.itos.coui.menu
 
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.luminance
@@ -73,7 +74,7 @@ data class CouiMenuStyle(
     val placement: CouiMenuPlacement = CouiMenuPlacement.Default,
     val contourStyle: CouiMenuContourStyle = CouiMenuContourStyle.BackgroundAware,
     val spotlightIntensity: Float? = null,
-    val spotlightBlendMode: android.graphics.BlendMode? = null,
+    val spotlightBlendMode: BlendMode? = null,
 )
 
 internal val CouiMenuStyle.resolvedRadius: Dp

@@ -8,6 +8,7 @@ import androidx.annotation.RequiresApi
 import kotlin.math.ceil
 
 /** 随显示密度缓存平台模糊, 不在滚动时重建滤镜。 */
+@RequiresApi(31)
 class CouiCoverageBlurEffect(radiusPx: Float) {
     val padding: Float = ceil(radiusPx)
     private val blur = RenderEffect.createBlurEffect(radiusPx, radiusPx, Shader.TileMode.DECAL)

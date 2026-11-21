@@ -57,9 +57,17 @@ internal class CourseMaterialSampling(
     val textureRadiusPx: State<Float> = mutableStateOf(filtered.filter?.radiusPx ?: 0f),
     private val samplingDim: () -> Float,
 ) : Backdrop by filtered {
-    val textureRenderer by lazy { CourseTextureRenderer() }
-    val contourPrograms by lazy { com.itos.coui.effect.CouiContourPrograms(com.itos.coui.effect.CouiContourStyle.LauncherFolder) }
-    val causticPrograms by lazy { com.itos.coui.effect.CouiCausticPrograms() }
+    val textureRenderer by lazy {
+        if (Build.VERSION.SDK_INT >= 33) CourseTextureRenderer() else null
+    }
+    val contourPrograms by lazy {
+        if (Build.VERSION.SDK_INT >= 33)
+            com.itos.coui.effect.CouiContourPrograms(com.itos.coui.effect.CouiContourStyle.LauncherFolder)
+        else null
+    }
+    val causticPrograms by lazy {
+        if (Build.VERSION.SDK_INT >= 34) com.itos.coui.effect.CouiCausticPrograms() else null
+    }
     val supportsTexture: Boolean get() = Build.VERSION.SDK_INT >= 33 && hasStaticBitmap
     val hasStaticBitmap: Boolean get() = pixels.value?.previewBlur == null
     val textureReady: Boolean get() = supportsTexture && pixels.value?.let {

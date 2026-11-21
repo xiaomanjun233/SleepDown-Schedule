@@ -905,6 +905,7 @@ object NotificationScheduler {
     private fun dndConditionId(context: Context): Uri =
         Condition.newId(context).appendPath("live-update-button").build()
 
+    @androidx.annotation.RequiresApi(Build.VERSION_CODES.VANILLA_ICE_CREAM)
     private fun setApplicationDndRuleState(
         context: Context,
         manager: NotificationManager,

@@ -1,6 +1,5 @@
 package com.itos.coui.effect
 
-import android.graphics.BlendMode
 import android.graphics.Paint
 import android.graphics.RuntimeShader
 import android.os.Build
@@ -19,7 +18,9 @@ import androidx.compose.runtime.structuralEqualityPolicy
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asComposePaint
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.input.pointer.PointerEventPass
@@ -46,8 +47,8 @@ enum class SpotlightPreset(
     internal val lightIntensity: Float,
     internal val darkIntensity: Float,
     internal val endRadius: Float,
-    internal val darkBlendMode: BlendMode = BlendMode.OVERLAY,
-    internal val lightBlendMode: BlendMode = BlendMode.OVERLAY,
+    internal val darkBlendMode: BlendMode = BlendMode.Overlay,
+    internal val lightBlendMode: BlendMode = BlendMode.Overlay,
     internal val ambient: Float = 0.4f,
     internal val diffuse: Float = 0.4f,
     internal val noise: Float = 0.08f,
@@ -56,9 +57,9 @@ enum class SpotlightPreset(
     TranslucentLarge1(0.6f, 0.1f, 800f),
     OpaqueSmall1(0.6f, 0.5f, 500f),
     OpaqueMedium1(0.6f, 0.8f, 500f),
-    OpaqueSmall2(1f, 0.15f, 500f, BlendMode.PLUS),
-    OpaqueMedium2(1f, 0.15f, 500f, BlendMode.PLUS),
-    ChipTab(0.2f, 0.3f, 600f, BlendMode.SRC_OVER, BlendMode.PLUS, 0.1f, 0.5f, 0f),
+    OpaqueSmall2(1f, 0.15f, 500f, BlendMode.Plus),
+    OpaqueMedium2(1f, 0.15f, 500f, BlendMode.Plus),
+    ChipTab(0.2f, 0.3f, 600f, BlendMode.SrcOver, BlendMode.Plus, 0.1f, 0.5f, 0f),
 }
 
 private data class SpotlightStyle(
@@ -68,7 +69,7 @@ private data class SpotlightStyle(
     val lightHeight: Float,
     val noise: Float,
     val dither: Float,
-    val blendMode: BlendMode = BlendMode.OVERLAY,
+    val blendMode: BlendMode,
     val startRadius: Float = 100f,
     val endRadius: Float = 800f,
     val color: Color = Color.White,
@@ -153,7 +154,9 @@ private fun runtimeSpotlight(
         derivedStateOf(structuralEqualityPolicy()) { light.progress > 0f }
     }
     val shader = remember { RuntimeShader(SpotlightShader) }
-    val paint = remember(style.blendMode) { Paint().apply { blendMode = style.blendMode } }
+    val paint = remember(style.blendMode) {
+        Paint().apply { asComposePaint().blendMode = style.blendMode }
+    }
     var inputCoordinates by remember { mutableStateOf<LayoutCoordinates?>(null) }
     var inputSize by remember { mutableStateOf(IntSize.Zero) }
     LaunchedEffect(light, interactive, externalTouch != null) {

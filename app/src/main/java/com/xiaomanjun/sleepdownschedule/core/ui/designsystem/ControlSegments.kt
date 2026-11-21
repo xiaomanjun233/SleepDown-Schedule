@@ -38,7 +38,7 @@ internal data class SegmentControlRequest(
 internal fun ControlSegments(request: SegmentControlRequest, highContrast: Boolean = false) {
     if (request.labels.isEmpty()) return
     val glow = LocalVisualEffects.current.usesGlowMaterials
-    val sampled = request.backdrop?.takeUnless { LocalControlDialogSurface.current ||
+    val sampled = request.backdrop?.takeUnless { Build.VERSION.SDK_INT < Build.VERSION_CODES.S || LocalControlDialogSurface.current ||
         AppMaterialPreferences.isSuperPerformance }
     val shell = when {
         !request.containerSurfaceEnabled -> Modifier

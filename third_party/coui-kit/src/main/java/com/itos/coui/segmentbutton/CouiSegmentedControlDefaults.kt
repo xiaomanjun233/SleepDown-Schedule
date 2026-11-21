@@ -1,7 +1,7 @@
 package com.itos.coui.segmentbutton
 
 import android.graphics.BlendMode
-import android.graphics.Typeface
+import androidx.annotation.RequiresApi
 import android.os.Build
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
@@ -14,6 +14,7 @@ import androidx.compose.ui.unit.sp
 import com.itos.coui.effect.CouiFloatingMaterial
 import com.itos.coui.text.couiAdaptFontSize
 import com.itos.coui.text.couiTextStyle
+import com.itos.coui.text.couiWeightedTypeface
 import kotlin.math.roundToInt
 
 object CouiSegmentedControlDefaults {
@@ -35,6 +36,7 @@ object CouiSegmentedControlDefaults {
     internal fun spotlightDither(dark: Boolean): Float = if (dark) 0f else 1f
 
     /** TYPE_CONTENT_SEGMENT_BUTTON 与 CAPSULE_6；不包含选中指示器。 */
+    @RequiresApi(29)
     fun material(dark: Boolean) = CouiFloatingMaterial(
         firstColor = Color(if (dark) 0x7F7F7F7F else 0x7F333333),
         firstBlendMode = if (dark) BlendMode.OVERLAY else BlendMode.COLOR_DODGE,
@@ -52,7 +54,7 @@ object CouiSegmentedControlDefaults {
         val configuration = LocalConfiguration.current
         val density = LocalDensity.current
         return remember(configuration, density) {
-            val typeface = Typeface.create(Typeface.create("sans-serif-medium", Typeface.NORMAL), 500, false)
+            val typeface = couiWeightedTypeface("sans-serif-medium", 500)
             val pixels = couiAdaptFontSize(with(density) { 14.sp.toPx() }.roundToInt().toFloat(), configuration, 1.35f)
             couiTextStyle(typeface, 500, pixels, if (Build.VERSION.SDK_INT >= 35) 1.2245f else 1.1f,
                 includeFontPadding = false, density = density).copy(letterSpacing = 0.sp)

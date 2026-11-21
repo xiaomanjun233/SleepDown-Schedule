@@ -4,7 +4,6 @@ import android.graphics.BitmapShader
 import android.graphics.Paint
 import android.graphics.RuntimeShader
 import android.graphics.Shader
-import android.os.Build
 import androidx.compose.foundation.shape.AbsoluteRoundedCornerShape
 import androidx.compose.foundation.shape.CornerBasedShape
 import androidx.annotation.RequiresApi
@@ -188,6 +187,7 @@ half4 main(float2 position) {
  * The node stays attached while pixels prepare. Until publication it reads the one shared
  * GPU prefix; it never creates a temporary per-card blur or changes the component hierarchy.
  */
+@RequiresApi(33)
 @Composable
 internal fun Modifier.courseTexture(
     source: CourseMaterialSampling,
@@ -199,7 +199,6 @@ internal fun Modifier.courseTexture(
     radiusPx: Float? = null,
     brightness: Float = 1f,
 ): Modifier {
-    check(Build.VERSION.SDK_INT >= 33)
     val coordinates = remember { CouiSamplingCoordinates() }
     val redraw = rememberUpdatedState(LocalGlassSampleRecordKey.current)
     val viewport = LocalCourseBackdropViewport.current
@@ -218,10 +217,10 @@ internal fun Modifier.courseTexture(
                 redraw.value()
                 val target = coordinates.coordinates?.takeIf { it.isAttached }
                 if (target != null && viewport?.intersects(target) != false) clipPath(path) {
-                    val drawn = with(source.textureRenderer) {
+                    val drawn = source.textureRenderer?.run {
                         draw(source, target, latestShape.value(), latestFrame.value, latestShaderTransform.value,
                             latestRadius.value ?: source.textureRadiusPx.value, latestBrightness.value)
-                    }
+                    } == true
                     if (!drawn) with(source.filtered) { drawBackdrop(this@onDrawWithContent, target, null) }
                     latestSurface.value?.invoke(this)
                 }

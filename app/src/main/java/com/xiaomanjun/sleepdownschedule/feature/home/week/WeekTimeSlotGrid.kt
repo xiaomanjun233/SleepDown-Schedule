@@ -42,8 +42,8 @@ internal data class WeekTimeSlotGrid(
         val interval = preferredPeriod?.let { index -> clockRows.firstOrNull { it.periodIndex == index && it.containsTime() } }
             ?: clockRows.firstOrNull { it.containsTime() }
         if (interval != null) {
-            val duration = java.time.Duration.between(interval.start, interval.end).toSeconds().coerceAtLeast(1)
-            val elapsed = java.time.Duration.between(interval.start, time).toSeconds()
+            val duration = java.time.Duration.between(interval.start, interval.end).seconds.coerceAtLeast(1)
+            val elapsed = java.time.Duration.between(interval.start, time).seconds
             return interval.top + interval.height * elapsed.toFloat() / duration
         }
         return clockRows.firstOrNull { it.start > time }?.top

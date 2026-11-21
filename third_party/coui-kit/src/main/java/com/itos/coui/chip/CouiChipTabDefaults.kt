@@ -1,5 +1,6 @@
 package com.itos.coui.chip
 
+import androidx.annotation.RequiresApi
 import android.animation.ArgbEvaluator
 import android.graphics.BlendMode
 import androidx.compose.runtime.Composable
@@ -32,6 +33,7 @@ object CouiChipTabDefaults {
     @Composable
     internal fun themeTextStyle(): TextStyle = textStyle.copy(fontFamily = CouiTheme.typography.chipLabelFontFamily ?: textStyle.fontFamily)
 
+    @RequiresApi(29)
     fun material(dark: Boolean, checkedFraction: Float): CouiFloatingMaterial {
         require(checkedFraction.isFinite()) { "选中进度必须为有限值" }
         val fraction = checkedFraction.coerceIn(0f, 1f)

@@ -99,7 +99,7 @@ internal fun rememberCouiMenuShadow(
         val from = outer
         val target = surface
         val height = min(size.height, clipHeight).coerceAtLeast(0f)
-        if (from != null && from.isAttached && target != null && target.isAttached &&
+        if (Build.VERSION.SDK_INT >= 34 && from != null && from.isAttached && target != null && target.isAttached &&
             scaleX > 0f && scaleY > 0f && translation.isFinite && size.width > 0f && height > 0f
         ) {
             val point = Offset(0f, clipTop)

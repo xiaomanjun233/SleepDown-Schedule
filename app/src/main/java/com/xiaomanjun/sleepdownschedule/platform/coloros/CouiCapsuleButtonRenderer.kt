@@ -1,5 +1,6 @@
 package com.xiaomanjun.sleepdownschedule.platform.coloros
 
+import android.os.Build
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.isSpecified
 import androidx.compose.ui.Modifier
@@ -31,11 +32,12 @@ internal fun rememberGlowButtonMaterial(
     val primary = request.primaryColor.isSpecified
     val accent = if (primary) request.primaryColor.copy(alpha = 1f) else Color.Unspecified
     val shape = request.shape ?: CouiButtonDefaults.shape
-    val sampled = (!primary || request.translucentAccent || request.lightBackdrop) &&
+    val canSample = Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
+    val sampled = canSample && (!primary || request.translucentAccent || request.lightBackdrop) &&
         (request.backdrop != null && !LocalControlDialogSurface.current) &&
         !com.xiaomanjun.sleepdownschedule.core.performance.AppMaterialPreferences.isSuperPerformance
     val colors = if (primary) CouiButtonDefaults.primaryColors(accent)
-        else CouiButtonDefaults.secondaryColors(request.dark, material = true)
+        else CouiButtonDefaults.secondaryColors(request.dark, material = canSample)
     return rememberCouiCapsuleMaterial(
         source = interactionSource,
         dark = request.dark,

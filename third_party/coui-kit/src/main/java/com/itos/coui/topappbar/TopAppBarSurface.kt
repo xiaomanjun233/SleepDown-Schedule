@@ -1,5 +1,6 @@
 package com.itos.coui.topappbar
 
+import androidx.annotation.RequiresApi
 import android.graphics.BlendMode
 import android.graphics.ColorSpace
 import android.graphics.LinearGradient
@@ -176,6 +177,7 @@ private fun topBarGradientAlpha(position: Float, dark: Boolean): Float {
         span * t * (1f - t) * (startSlope * (1f - t) - endSlope * t)).coerceIn(0f, 1f)
 }
 
+@RequiresApi(31)
 private fun CouiBackdropEffectScope.progressiveBlur(blurEffects: List<CouiCoverageBlurEffect>, fadeHeight: androidx.compose.ui.unit.Dp) {
     if (!size.isSpecified || size.height <= 0f) return
 
@@ -194,6 +196,7 @@ private fun CouiBackdropEffectScope.progressiveBlur(blurEffects: List<CouiCovera
     renderEffect = combined.asComposeRenderEffect()
 }
 
+@RequiresApi(31)
 private fun CouiBackdropEffectScope.fadeEffect(positions: FloatArray, fadeHeight: androidx.compose.ui.unit.Dp): RenderEffect {
     // 渐变沿固定长度展开并锚定背景下沿, 折叠时只平移, 不随栏高压缩。
     // 起点允许超出顶部; 由渐变自身延续端点颜色, 不裁短坐标区间。
