@@ -6,6 +6,7 @@ import com.xiaomanjun.sleepdownschedule.app.ui.*
 import com.xiaomanjun.sleepdownschedule.feature.schedule.*
 import com.xiaomanjun.sleepdownschedule.feature.schedule.autorefresh.AutoRefreshScheduleStore
 import com.xiaomanjun.sleepdownschedule.feature.schedule.autorefresh.AutoRefreshScheduleWorker
+import com.xiaomanjun.sleepdownschedule.feature.schedule.autorefresh.AutoRefreshWebSession
 
 import com.xiaomanjun.sleepdownschedule.core.remoteconfig.SleepDownRemoteConfig
 import com.xiaomanjun.sleepdownschedule.core.performance.*
@@ -72,7 +73,11 @@ class CourseScheduleApp : Application() {
             if (changed) TodayCoursesWidgetProvider.refreshAll(this)
         }
         AppIconManager.applyStoredMode(this)
-        AutoRefreshScheduleWorker.ensureSchedule(this, AutoRefreshScheduleStore.load(this))
+        val refreshProfile = AutoRefreshScheduleStore.load(this)
+        refreshProfile?.browserProfileName?.let { name ->
+            runCatching { AutoRefreshWebSession.pruneRetiredProfiles(name) }
+        }
+        AutoRefreshScheduleWorker.ensureSchedule(this, refreshProfile)
         com.xiaomanjun.sleepdownschedule.feature.backup.webdav.WebDavAutomation.schedule(this)
         SleepDownRemoteConfig.initialize(this, applicationScope,
             onBootstrapLoaded = { appContext ->

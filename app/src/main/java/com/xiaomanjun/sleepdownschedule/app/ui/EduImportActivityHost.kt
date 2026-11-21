@@ -34,6 +34,7 @@ import com.xiaomanjun.sleepdownschedule.feature.importing.PendingImportSetupStor
 import com.xiaomanjun.sleepdownschedule.feature.importing.eduAdapterFromIntentKey
 import com.xiaomanjun.sleepdownschedule.feature.importing.isGeneralEduTool
 import com.xiaomanjun.sleepdownschedule.feature.schedule.autorefresh.AutoRefreshScheduleStore
+import com.xiaomanjun.sleepdownschedule.feature.schedule.autorefresh.AutoRefreshScheduleCoordinator
 import com.xiaomanjun.sleepdownschedule.feature.schedule.autorefresh.AutoRefreshWebSession
 import com.xiaomanjun.sleepdownschedule.feature.settings.title
 import com.xiaomanjun.sleepdownschedule.glass.GlassBackdropDomain
@@ -60,7 +61,9 @@ open class EduImportActivityHost : ComponentActivity() {
             val retainedSession = remember(adapter) {
                 if (adapter != null && refreshRequest) {
                     AutoRefreshScheduleStore.load(app)?.takeIf {
-                        it.schoolId == adapter.school.id && it.adapterId == adapter.adapterId
+                        val binding = intent.getStringExtra(AutoRefreshWebSession.BindingExtra)
+                        it.bindingId != null && it.adapterId == adapter.adapterId &&
+                            (if (binding != null) it.bindingId == binding else it.schoolId == adapter.school.id)
                     }
                 } else null
             }
@@ -71,10 +74,6 @@ open class EduImportActivityHost : ComponentActivity() {
             var submitting by remember { mutableStateOf(false) }
             var saveError by remember { mutableStateOf<String?>(null) }
             val scope = rememberCoroutineScope()
-            val sessionRestores = remember { mutableListOf<AutoCloseable>() }
-            androidx.compose.runtime.DisposableEffect(Unit) {
-                onDispose { sessionRestores.forEach { it.close() }; sessionRestores.clear() }
-            }
             val eduWebContentBackdrop = rememberGlassLayerBackdrop(
                 domain = GlassBackdropDomain.Content,
                 providerId = "edu-import-web-content"
@@ -95,7 +94,7 @@ open class EduImportActivityHost : ComponentActivity() {
                         topBarBackdropOverride = eduWebContentBackdrop,
                         topBarBackgroundColor = webToolbarColor
                     ) { backdrop ->
-                        if (adapter == null) {
+                        if (adapter == null || (refreshRequest && retainedSession == null)) {
                             Box(
                                 modifier = Modifier
                                     .fillMaxSize()
@@ -112,13 +111,31 @@ open class EduImportActivityHost : ComponentActivity() {
                                 webToolbarColor = webToolbarColor,
                                 useDetailTopPadding = true,
                                 standaloneImport = !refreshRequest,
-                                prepareWebView = { webView ->
-                                    retainedSession?.let {
-                                        AutoRefreshWebSession.restore(webView, it)?.let(sessionRestores::add)
-                                    }
-                                },
+                                browserProfileName = retainedSession?.browserProfileName,
+                                initialUrl = retainedSession?.authenticatedUrl,
                                 initialDesktopMode = retainedSession?.desktopMode ?: false,
-                                onParsed = { draft -> saveError = null; pendingDraft = draft }
+                                onParsed = { draft ->
+                                    if (!refreshRequest) {
+                                        saveError = null
+                                        pendingDraft = draft
+                                    } else if (!submitting && retainedSession != null) {
+                                        submitting = true
+                                        scope.launch {
+                                            try {
+                                                val result = AutoRefreshScheduleCoordinator.reviewBrowserRefresh(app, retainedSession, draft)
+                                                android.widget.Toast.makeText(app, result, android.widget.Toast.LENGTH_SHORT).show()
+                                                returnToScheduleHome()
+                                            } catch (cancelled: CancellationException) {
+                                                throw cancelled
+                                            } catch (error: Exception) {
+                                                android.widget.Toast.makeText(app, error.message ?: "课表比较失败，请重试",
+                                                    android.widget.Toast.LENGTH_LONG).show()
+                                            } finally {
+                                                submitting = false
+                                            }
+                                        }
+                                    }
+                                }
                             )
                         }
                     }
@@ -153,23 +170,6 @@ open class EduImportActivityHost : ComponentActivity() {
                                     if (submitting) return@ConfirmScheduleScreen
                                     submitting = true
                                     saveError = null
-                                    if (refreshRequest && !createNewSchedule) {
-                                        if (retainedSession == null) {
-                                            submitting = false
-                                            saveError = "教务绑定已改变，请返回自动刷新设置重新登录后核对课表"
-                                            return@ConfirmScheduleScreen
-                                        }
-                                        scope.launch {
-                                            try {
-                                                com.xiaomanjun.sleepdownschedule.feature.schedule.autorefresh.AutoRefreshScheduleCoordinator
-                                                    .reviewBrowserRefresh(app, retainedSession, previewDraft)
-                                                returnToScheduleHome()
-                                            } catch (cancelled: CancellationException) { throw cancelled }
-                                            catch (error: Exception) { saveError = error.message ?: "课表比较失败，请重试" }
-                                            finally { submitting = false }
-                                        }
-                                        return@ConfirmScheduleScreen
-                                    }
                                     viewModel.importDraft(previewDraft, createNewSchedule,
                                         historySource = adapter.school.name, onFailure = {
                                         submitting = false

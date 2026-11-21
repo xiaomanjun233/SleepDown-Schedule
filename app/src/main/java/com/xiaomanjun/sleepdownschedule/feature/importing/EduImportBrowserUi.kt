@@ -142,7 +142,8 @@ internal fun EduImportActivityScreen(
     useDetailTopPadding: Boolean = true,
     primaryAction: EduBrowserPrimaryAction? = null,
     standaloneImport: Boolean = primaryAction == null,
-    prepareWebView: suspend (WebView) -> Unit = {},
+    browserProfileName: String? = null,
+    initialUrl: String? = null,
     initialDesktopMode: Boolean = false,
     onParsed: (ImportDraft) -> Unit
 ) {
@@ -150,9 +151,9 @@ internal fun EduImportActivityScreen(
     var message by remember { mutableStateOf<String?>(null) }
     var webView by remember { mutableStateOf<WebView?>(null) }
     var bridgeInteraction by remember { mutableStateOf<EduBridgeInteractionRequest?>(null) }
-    var currentUrl by remember(adapter) {
+    var currentUrl by remember(adapter, initialUrl) {
         mutableStateOf(
-            if (adapter.requiresManualEduUrl()) "" else adapter.importUrl.ifBlank { "about:blank" }
+            initialUrl ?: if (adapter.requiresManualEduUrl()) "" else adapter.importUrl.ifBlank { "about:blank" }
         )
     }
     val currentOnParsed by rememberUpdatedState(onParsed)
@@ -190,7 +191,7 @@ internal fun EduImportActivityScreen(
         useDetailTopPadding = useDetailTopPadding,
         primaryAction = primaryAction,
         standaloneImport = standaloneImport,
-        prepareWebView = prepareWebView,
+        browserProfileName = browserProfileName,
         initialDesktopMode = initialDesktopMode,
         onMessage = { message = it }
     )
@@ -775,19 +776,18 @@ private fun EduImportBrowserScreen(
     useDetailTopPadding: Boolean = true,
     primaryAction: EduBrowserPrimaryAction? = null,
     standaloneImport: Boolean = primaryAction == null,
-    prepareWebView: suspend (WebView) -> Unit = {},
+    browserProfileName: String? = null,
     initialDesktopMode: Boolean = false,
     onMessage: (String) -> Unit
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val currentPrimaryAction by rememberUpdatedState(primaryAction)
-    val currentPrepareWebView by rememberUpdatedState(prepareWebView)
     var primaryActionRunning by remember(adapter) { mutableStateOf(false) }
     val buttonBackdrop = webContentBackdrop
     val backgroundPermissionGate = rememberAiImportBackgroundPermissionGate()
     var addressText by remember(currentUrl) { mutableStateOf(currentUrl) }
-    var loginEntryUrl by remember(adapter) { mutableStateOf(adapter.importUrl.takeIf { eduOrigin(it) != null }.orEmpty()) }
+    var loginEntryUrl by remember(adapter) { mutableStateOf(currentUrl.takeIf { eduOrigin(it) != null }.orEmpty()) }
     var canGoBack by remember { mutableStateOf(false) }
     var canGoForward by remember { mutableStateOf(false) }
     var desktopMode by remember(adapter) { mutableStateOf(initialDesktopMode) }
@@ -1083,7 +1083,7 @@ private fun EduImportBrowserScreen(
     }
 
     fun configureEduWebView(target: WebView, isPopup: Boolean) {
-        val cookies = target.eduImportCookieManager(standaloneImport)
+        val cookies = target.eduImportCookieManager(standaloneImport, browserProfileName)
         target.apply webView@ {
             layoutParams = ViewGroup.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
@@ -1444,17 +1444,7 @@ private fun EduImportBrowserScreen(
             bridge.bindWebView(this)
             updateNavigationState(this)
             val initialUrl = rendererRestoreUrl ?: normalizedUrl
-            val target = this
-            scope.launch {
-                try {
-                    currentPrepareWebView(target)
-                    // A disposed/replaced renderer must never start another navigation.
-                    if (initialUrl.isNotBlank()) webCompatDelegates[target]?.loadInitialUrl(initialUrl)
-                } catch (error: Exception) {
-                    if (error is kotlinx.coroutines.CancellationException) throw error
-                    onMessage(error.message ?: "登录态恢复失败，请重新登录")
-                }
-            }
+            if (initialUrl.isNotBlank()) webCompatDelegates[this]?.loadInitialUrl(initialUrl)
         }
     }
 

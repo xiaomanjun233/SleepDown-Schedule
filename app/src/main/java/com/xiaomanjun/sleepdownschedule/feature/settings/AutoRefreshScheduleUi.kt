@@ -23,8 +23,10 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.kyant.backdrop.Backdrop
 import com.xiaomanjun.sleepdownschedule.AppState
+import com.xiaomanjun.sleepdownschedule.CourseScheduleApp
 import com.xiaomanjun.sleepdownschedule.core.ui.chrome.DockScrollPadding
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.*
 import com.xiaomanjun.sleepdownschedule.core.ui.scaffold.detailContentTopPadding
@@ -46,6 +48,7 @@ import com.xiaomanjun.sleepdownschedule.feature.schedule.autorefresh.*
 import com.xiaomanjun.sleepdownschedule.glass.GlassBackdropDomain
 import com.xiaomanjun.sleepdownschedule.glass.glassBackdropProducer
 import com.xiaomanjun.sleepdownschedule.glass.rememberGlassLayerBackdrop
+import com.xiaomanjun.sleepdownschedule.model.ScheduleProfileEntity
 import java.io.File
 import java.text.DateFormat
 import java.util.Date
@@ -110,13 +113,18 @@ fun AutoRefreshScheduleSettingsScreen(
     val authLauncher = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) {}
     val saved = profile
     if (saved != null) {
+        val repository = (context.applicationContext as CourseScheduleApp).repository
+        val schedules by repository.scheduleProfiles.collectAsStateWithLifecycle(initialValue = null)
         val savedAdapter = ShiguangApiAdapterCatalog.find(
-            adapters.orEmpty(), saved.schoolId, saved.adapterId
+            adapters.orEmpty(), saved.schoolId, saved.adapterId, saved.adapterSource
         )
+        val scheduleMissing = schedules?.none { it.id == saved.scheduleId } == true
         AutoRefreshDashboardContent(
             state = state,
+            scheduleProfiles = schedules,
             backdrop = backdrop,
             profile = saved.copy(
+                connection = if (scheduleMissing) RefreshConnection.ScheduleMissing else saved.connection,
                 adapterName = savedAdapter?.adapterName
                     ?: saved.adapterName.removeSuffix("（纯接口试验）").removeSuffix("（纯接口实验）")
             ),
@@ -130,6 +138,7 @@ fun AutoRefreshScheduleSettingsScreen(
                 savedAdapter?.let {
                     authLauncher.launch(android.content.Intent(context, com.xiaomanjun.sleepdownschedule.EduImportActivity::class.java)
                         .putExtra("edu_adapter", it.toIntentKey())
+                        .putExtra(AutoRefreshWebSession.BindingExtra, saved.bindingId)
                         .putExtra(AutoRefreshWebSession.RestoreSessionExtra, true))
                 }
             },
@@ -185,6 +194,7 @@ fun AutoRefreshScheduleSettingsScreen(
 @Composable
 private fun AutoRefreshDashboardContent(
     state: AppState,
+    scheduleProfiles: List<ScheduleProfileEntity>?,
     backdrop: Backdrop?,
     profile: AutoRefreshScheduleProfile,
     reconnectAvailable: Boolean,
@@ -196,13 +206,17 @@ private fun AutoRefreshDashboardContent(
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     var refreshing by remember { mutableStateOf(false) }
+    var switchingTarget by remember { mutableStateOf(false) }
+    var targetMessage by remember { mutableStateOf<String?>(null) }
     var message by remember(profile.lastResult) { mutableStateOf(profile.lastResult) }
     var refreshResultMessage by remember { mutableStateOf<String?>(null) }
     var reviewOpenRequest by remember { mutableIntStateOf(0) }
     val pendingReview by AutoRefreshReviewStore.observe(context).collectAsState()
-    val hasPendingReview = pendingReview?.let {
-        it.scheduleId == profile.scheduleId && it.schoolId == profile.schoolId && it.adapterId == profile.adapterId
-    } == true
+    val schedules = scheduleProfiles.orEmpty()
+    val targetIndex = schedules.indexOfFirst { it.id == profile.scheduleId }
+    val targetUnavailable = scheduleProfiles == null || profile.connection == RefreshConnection.ScheduleMissing
+    val hasPendingReview = !targetUnavailable && pendingReview?.belongsTo(profile) == true
+    val busy = refreshing || switchingTarget
     var showLogout by remember { mutableStateOf(false) }
     var cropUri by rememberSaveable { mutableStateOf<String?>(null) }
     var cropVisible by rememberSaveable { mutableStateOf(false) }
@@ -232,6 +246,22 @@ private fun AutoRefreshDashboardContent(
             val updated = AutoRefreshScheduleStore.update(context, transform)
             AutoRefreshScheduleWorker.updateSchedule(context, updated)
         }.onFailure { message = "设置保存失败，请重试" }
+    }
+    fun selectTarget(targetId: Int) {
+        if (busy || (targetId == profile.scheduleId && !targetUnavailable)) return
+        switchingTarget = true
+        targetMessage = null
+        scope.launch {
+            try {
+                targetMessage = AutoRefreshScheduleCoordinator.selectTargetSchedule(context, profile, targetId)
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (failure: Exception) {
+                targetMessage = failure.message ?: "目标课表设置失败，请重试"
+            } finally {
+                switchingTarget = false
+            }
+        }
     }
     val lastRefresh = remember(profile.lastRefreshAt) {
         if (profile.lastRefreshAt <= 0) "尚未刷新"
@@ -266,9 +296,7 @@ private fun AutoRefreshDashboardContent(
                         Text(profile.schoolName, style = MaterialTheme.typography.titleLarge,
                             fontWeight = FontWeight.SemiBold, color = foreground)
                         Text(
-                            if (profile.sessionOnly) "教务账号 · 登录态已保留"
-                            else if (profile.username.isBlank()) "教务账号 · 已连接"
-                            else "教务账号 · ${maskAccount(profile.username)}",
+                            profile.connection.label,
                             style = MaterialTheme.typography.bodyMedium, color = foreground.copy(alpha = 0.62f)
                         )
                         DialogLiquidButton(
@@ -286,17 +314,40 @@ private fun AutoRefreshDashboardContent(
             item(key = "refresh") {
                 GlassPreferenceSection("课表更新") {
                     SettingsGroup(backdrop, state.config, Modifier.fillMaxWidth()) {
-                        if (profile.sessionOnly) {
-                            SettingsInfoRow("刷新方式", "保留登录态，打开教务页面手动刷新")
-                        } else SleepDownLiquidDropdownPreference(
-                            items = listOf("从不", "每天", "每7天"),
-                            selectedIndex = AutoRefreshFrequency.selectedIndex(profile.automatic, profile.frequencyMinutes),
-                            title = "自动刷新",
-                            summary = if (profile.automatic) "联网时更新，实际时间由系统安排" else "仅在手动刷新时更新课表",
+                        SleepDownLiquidDropdownPreference(
+                            items = schedules.map { it.name },
+                            selectedIndex = targetIndex,
+                            title = "将自动刷新应用于",
+                            summary = targetMessage ?: when {
+                                scheduleProfiles == null -> "正在读取课表"
+                                schedules.isEmpty() -> "创建课表后可选择"
+                                targetUnavailable -> "请选择要更新的课表"
+                                else -> null
+                            },
                             backdrop = backdrop,
                             config = state.config,
                             modifier = Modifier.fillMaxWidth(),
                             insideMargin = PaddingValues(horizontal = 14.dp, vertical = 14.dp),
+                            enabled = !busy && schedules.isNotEmpty(),
+                            onSelectedIndexChange = { index ->
+                                schedules.getOrNull(index)?.let { selectTarget(it.id) }
+                            }
+                        )
+                        if (targetUnavailable) return@SettingsGroup
+                        SettingsDivider()
+                        if (!profile.canCheckInBackground) {
+                            SettingsInfoRow("后台检查", if (profile.connection == RefreshConnection.BrowserOnly)
+                                "可在教务页面手动核对" else "连接验证后恢复")
+                        } else SleepDownLiquidDropdownPreference(
+                            items = listOf("从不", "每天", "每7天"),
+                            selectedIndex = AutoRefreshFrequency.selectedIndex(profile.automatic, profile.frequencyMinutes),
+                            title = "自动刷新",
+                            summary = if (profile.automatic) "有网时检查，课程变化由你核对后保存" else "仅在你发起检查时取课",
+                            backdrop = backdrop,
+                            config = state.config,
+                            modifier = Modifier.fillMaxWidth(),
+                            insideMargin = PaddingValues(horizontal = 14.dp, vertical = 14.dp),
+                            enabled = !switchingTarget,
                             onSelectedIndexChange = { index ->
                                 updateProfile { it.copy(
                                     automatic = index != 0,
@@ -305,34 +356,43 @@ private fun AutoRefreshDashboardContent(
                             }
                         )
                         SettingsDivider()
-                        SettingsInfoRow("最近刷新", lastRefresh)
-                        Text(message, color = foreground.copy(alpha = 0.65f),
-                            style = MaterialTheme.typography.bodySmall,
-                            modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp))
-                        Column(Modifier.fillMaxWidth().padding(14.dp)) {
+                        SettingsInfoRow("最近成功检查", lastRefresh)
+                        Column(
+                            Modifier.fillMaxWidth().padding(14.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
                             SettingsActionButton(
-                                if (hasPendingReview) "核对课表差异"
-                                else if (profile.sessionOnly) "打开教务手动刷新"
-                                else if (refreshing) "正在刷新…" else "立即刷新课表",
+                                if (hasPendingReview) "刷新课表"
+                                else if (refreshing) "正在检查…"
+                                else if (profile.connection == RefreshConnection.BrowserOnly) "打开教务核对"
+                                else if (!profile.canCheckInBackground) "重新验证连接"
+                                else "立即检查课表",
                                 backdrop,
                                 modifier = Modifier.fillMaxWidth(),
+                                enabled = !busy,
                                 onClick = {
                                     if (hasPendingReview) {
                                         reviewOpenRequest++
-                                    } else if (profile.sessionOnly) {
+                                    } else if (profile.connection == RefreshConnection.BrowserOnly) {
                                         if (reconnectAvailable) onManualRefresh() else onRetryCatalog()
-                                    } else if (!refreshing) scope.launch {
+                                    } else if (!profile.canCheckInBackground) {
+                                        if (reconnectAvailable) onReconnect() else onRetryCatalog()
+                                    } else {
                                         refreshing = true
-                                        try {
-                                            message = AutoRefreshScheduleCoordinator.refreshSaved(context, manual = true).message
-                                            if (AutoRefreshReviewStore.load(context) == null) refreshResultMessage = message
-                                            else reviewOpenRequest++
-                                        } finally {
-                                            refreshing = false
+                                        scope.launch {
+                                            try {
+                                                message = AutoRefreshScheduleCoordinator.refreshSaved(context, manual = true).message
+                                                if (AutoRefreshReviewStore.load(context) == null) refreshResultMessage = message
+                                                else reviewOpenRequest++
+                                            } finally {
+                                                refreshing = false
+                                            }
                                         }
                                     }
                                 }
                             )
+                            Text(message, color = foreground.copy(alpha = 0.65f),
+                                style = MaterialTheme.typography.bodySmall)
                         }
                     }
                 }
@@ -340,20 +400,24 @@ private fun AutoRefreshDashboardContent(
             item(key = "connection") {
                 GlassPreferenceSection("登录与连接") {
                     SettingsGroup(backdrop, state.config, Modifier.fillMaxWidth()) {
-                        SettingsNavigationRow(
-                            title = "重新登录",
-                            subtitle = if (reconnectAvailable) "会话失效时，打开学校登录页重新连接" else connectionStatus,
-                            onClick = { if (!refreshing) { if (reconnectAvailable) onReconnect() else onRetryCatalog() } }
-                        )
-                        if (!profile.sessionOnly) {
-                            SettingsDivider()
+                        if (!targetUnavailable) {
                             SettingsNavigationRow(
-                                title = "打开教务页面手动刷新",
-                                subtitle = if (reconnectAvailable) "在可见网页中检查课程并确认导入" else connectionStatus,
-                                onClick = { if (!refreshing) { if (reconnectAvailable) onManualRefresh() else onRetryCatalog() } }
+                                title = "重新验证连接",
+                                subtitle = if (reconnectAvailable) "在学校页面登录并验证取课" else connectionStatus,
+                                enabled = !busy,
+                                onClick = { if (reconnectAvailable) onReconnect() else onRetryCatalog() }
                             )
+                            SettingsDivider()
+                            if (profile.bindingId != null) {
+                                SettingsNavigationRow(
+                                    title = "打开教务页面",
+                                    subtitle = if (reconnectAvailable) "手动取课后核对目标课表的变化" else connectionStatus,
+                                    enabled = !busy,
+                                    onClick = { if (reconnectAvailable) onManualRefresh() else onRetryCatalog() }
+                                )
+                                SettingsDivider()
+                            }
                         }
-                        SettingsDivider()
                         SettingsInfoRow("校园网络", "部分学校需要校园网或校园 VPN，自动刷新时也需要保持连接；会话失效后请重新登录")
                     }
                 }
@@ -368,7 +432,8 @@ private fun AutoRefreshDashboardContent(
         )
         SettingsActionButton(
             "退出登录", contentBackdrop, glowing = true, destructive = true,
-            onClick = { if (!refreshing) showLogout = true },
+            onClick = { showLogout = true },
+            enabled = !busy,
             modifier = Modifier.align(Alignment.BottomCenter).imePadding().navigationBarsPadding()
                 .padding(start = 16.dp, end = 16.dp, bottom = 18.dp).fillMaxWidth()
         )
@@ -401,15 +466,22 @@ private fun AutoRefreshDashboardContent(
             LiquidAlertAction("取消", LiquidAlertActionStyle.Cancel) { showLogout = false },
             LiquidAlertAction("退出登录", LiquidAlertActionStyle.Destructive) {
                 scope.launch {
-                    AutoRefreshScheduleCoordinator.logout(context)
-                    deleteStoredAvatar(context.filesDir, profile.avatarPath)
-                    showLogout = false
+                    try {
+                        AutoRefreshScheduleCoordinator.logout(context)
+                        deleteStoredAvatar(context.filesDir, profile.avatarPath)
+                    } catch (cancelled: CancellationException) {
+                        throw cancelled
+                    } catch (_: Exception) {
+                        refreshResultMessage = "退出教务登录失败，请重试"
+                    } finally {
+                        showLogout = false
+                    }
                 }
             }
         ), config = state.config,
         onDismissRequest = { showLogout = false }
     )
-    AutoRefreshReviewHost(state.config, backdrop, state.schedules, enabled = !showLogout && !cropVisible && !refreshing,
+    AutoRefreshReviewHost(state.config, schedules, enabled = !showLogout && !cropVisible && !busy,
         openRequest = reviewOpenRequest)
     refreshResultMessage?.let { result ->
         LiquidAlertDialog(
@@ -422,12 +494,6 @@ private fun AutoRefreshDashboardContent(
             onDismissRequest = { refreshResultMessage = null }
         )
     }
-}
-
-private fun maskAccount(value: String): String = when {
-    value.length <= 2 -> "••"
-    value.length <= 5 -> value.take(1) + "••" + value.takeLast(1)
-    else -> value.take(2) + "••••" + value.takeLast(2)
 }
 
 private fun deleteStoredAvatar(filesDir: File, path: String?) {

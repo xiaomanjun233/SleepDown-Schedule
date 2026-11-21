@@ -6,6 +6,9 @@ import com.xiaomanjun.sleepdownschedule.data.repository.ScheduleRepository
 import com.xiaomanjun.sleepdownschedule.domain.schedule.*
 import com.xiaomanjun.sleepdownschedule.feature.schedule.autorefresh.PendingScheduleRefresh
 import com.xiaomanjun.sleepdownschedule.feature.schedule.autorefresh.AutoRefreshScheduleProfile
+import com.xiaomanjun.sleepdownschedule.feature.schedule.autorefresh.RefreshReviewDecision
+import com.xiaomanjun.sleepdownschedule.feature.schedule.autorefresh.decideRefreshReview
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
@@ -34,8 +37,20 @@ class AutoRefreshReviewRepositoryTest {
     private suspend fun review(): PendingScheduleRefresh {
         val state = repository.scheduleSnapshot(1)
         val original = db.courseDao().getCourses(1).single()
-        return PendingScheduleRefresh.create(AutoRefreshScheduleProfile("test", "学校", "a", "入口", "", "", 1),
+        return PendingScheduleRefresh.create(AutoRefreshScheduleProfile("test", "学校", "a", "入口", 1),
             state, listOf(original.copy(id = 0, location = "202")), state.config.copy(totalWeeks = 18))
+    }
+
+    @Test fun refreshTargetsIncludeInactiveSchedulesMissingFromTheHomeSnapshot() = runBlocking {
+        val target = repository.createSchedule("下学期")
+
+        assertTrue(repository.state.first().schedules.isEmpty())
+        assertEquals(listOf(1, target), repository.scheduleProfiles.first().map { it.id })
+        assertEquals("下学期", repository.scheduleProfiles.first().single { it.id == target }.name)
+
+        repository.deleteSchedule(target)
+
+        assertEquals(listOf(1), repository.scheduleProfiles.first().map { it.id })
     }
 
     @Test fun pendingRoundTripDoesNotWriteAndReviewKeepsCourseId() = runBlocking {
@@ -82,7 +97,7 @@ class AutoRefreshReviewRepositoryTest {
         db.courseDao().updateCourse(legacy)
         val state = repository.scheduleSnapshot(1)
         val incoming = captureOriginalPeriodTimes(legacy.copy(id = 0), state.periods)
-        val pending = PendingScheduleRefresh.create(AutoRefreshScheduleProfile("test", "学校", "a", "入口", "", "", 1),
+        val pending = PendingScheduleRefresh.create(AutoRefreshScheduleProfile("test", "学校", "a", "入口", 1),
             state, listOf(incoming), state.config)
         assertEquals(0, pending.count)
         assertNull(pending.before.single().originalTimes)
@@ -98,12 +113,25 @@ class AutoRefreshReviewRepositoryTest {
         assertEquals("202", rebased.differences.single().after!!.location)
     }
 
+    @Test fun freshChecksKeepAnEqualReviewAndReplaceAnOutdatedOne() = runBlocking {
+        val pending = review()
+        val noChanges = pending.copy(after = pending.before, afterTerm = pending.beforeTerm)
+        val later = pending.copy(after = pending.after.map { it.copy(location = "303") })
+        assertEquals(RefreshReviewDecision.Keep, decideRefreshReview(pending, pending.copy(id = "new"), false, false))
+        assertEquals(RefreshReviewDecision.Replace, decideRefreshReview(pending, later, false, false))
+        assertEquals(RefreshReviewDecision.Clear, decideRefreshReview(pending, noChanges, false, false))
+        assertEquals(RefreshReviewDecision.Clear, decideRefreshReview(null, pending, false, true))
+        assertEquals(RefreshReviewDecision.Replace, decideRefreshReview(null, pending, true, true))
+        val newAccount = AutoRefreshScheduleProfile("test", "学校", "a", "入口", 1, bindingId = "new")
+        assertFalse(pending.belongsTo(newAccount))
+    }
+
     @Test fun mixedReviewAppliesOnlySelectedAdditionAndRemovalAndKeepsLocalEdit() = runBlocking {
         repository.addCourse(db.courseDao().getCourses(1).single().copy(id = 0, name = "物理", weekday = 2))
         val state = repository.scheduleSnapshot(1)
         val math = state.courses.single { it.name == "数学" }
         val incoming = listOf(math.copy(id = 0, location = "202"), math.copy(id = 0, name = "英语", weekday = 3))
-        val pending = PendingScheduleRefresh.create(AutoRefreshScheduleProfile("test", "学校", "a", "入口", "", "", 1),
+        val pending = PendingScheduleRefresh.create(AutoRefreshScheduleProfile("test", "学校", "a", "入口", 1),
             state, incoming, state.config)
         val selected = pending.differences.indices.filter { index ->
             pending.differences[index].let { it.before?.name == "物理" || it.after?.name == "英语" }

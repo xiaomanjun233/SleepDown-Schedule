@@ -31,6 +31,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -140,8 +141,6 @@ internal fun <T> BoxScope.CardSelectionChrome(
     val colors = CouiTheme.colorScheme
     val editorProgress = LocalSettingsEditorProgress.current
     val material = LocalCouiMaterialEnabled.current
-    val effects = LocalVisualEffects.current
-    val deleteHeight = if (effects.usesGlowMaterials) CouiDockDefaults.barHeight else LiquidHomeDockHeight
     fun cancel() {
         if (canAct) {
             error = null
@@ -177,44 +176,20 @@ internal fun <T> BoxScope.CardSelectionChrome(
             backdrop = rememberCouiGlassBackdrop(backdrop)
         )
     }
-    AnimatedVisibility(
+    val deleteEnabled = selected.isNotEmpty() && canAct
+    CardSelectionFloatingAction(
         visible = selection.active,
-        modifier = Modifier.align(Alignment.BottomCenter).navigationBarsPadding().padding(bottom = 16.dp),
-        enter = fadeIn() + slideInVertically { it / 2 },
-        exit = fadeOut() + slideOutVertically { it / 2 }
-    ) {
-        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            error?.let {
-                Text(it, Modifier.padding(horizontal = 16.dp, vertical = 6.dp),
-                    color = MaterialTheme.colorScheme.error, textAlign = TextAlign.Center)
-            }
-            val enabled = selected.isNotEmpty() && canAct
-            val ink = if (enabled) MaterialTheme.colorScheme.error else colors.onSurfaceVariant
-            LiquidButton(
-                onClick = { error = null; pending = selected },
-                backdrop = backdrop,
-                modifier = Modifier.width(148.dp),
-                height = deleteHeight,
-                enabled = enabled,
-                preserveMaterialWhenDisabled = true,
-                nativePrimaryColor = Color.Unspecified,
-                surfaceColor = colors.background.copy(alpha = 0.86f)
-            ) {
-                Column(
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.spacedBy(4.dp),
-                ) {
-                    Icon(CouiIcons.Delete, null, Modifier.size(24.dp), tint = ink)
-                    com.itos.coui.text.Text(
-                        text = if (selection.deleting) "正在删除" else "删除",
-                        kind = CouiTextKind.GroupTitle,
-                        color = ink,
-                        maxLines = 1,
-                    )
-                }
-            }
-        }
-    }
+        label = if (selection.deleting) "正在删除" else "删除",
+        icon = CouiIcons.Delete,
+        ink = if (deleteEnabled) MaterialTheme.colorScheme.error else colors.onSurfaceVariant,
+        enabled = deleteEnabled,
+        backdrop = backdrop,
+        errorMessage = error,
+        onClick = {
+            error = null
+            pending = selected
+        },
+    )
     pending?.let { originals ->
         LiquidAlertDialog(
             title = confirmationTitle, message = confirmationMessage(originals.size), config = config, onDismissRequest = { pending = null },
@@ -239,5 +214,56 @@ internal fun <T> BoxScope.CardSelectionChrome(
                 }
             )
         )
+    }
+}
+
+@Composable
+internal fun BoxScope.CardSelectionFloatingAction(
+    visible: Boolean,
+    label: String,
+    icon: ImageVector,
+    ink: Color,
+    enabled: Boolean,
+    backdrop: Backdrop,
+    errorMessage: String? = null,
+    onClick: () -> Unit,
+) {
+    val effects = LocalVisualEffects.current
+    val height = if (effects.usesGlowMaterials) CouiDockDefaults.barHeight else LiquidHomeDockHeight
+    AnimatedVisibility(
+        visible = visible,
+        modifier = Modifier.align(Alignment.BottomCenter).navigationBarsPadding().padding(bottom = 16.dp),
+        enter = fadeIn() + slideInVertically { it / 2 },
+        exit = fadeOut() + slideOutVertically { it / 2 }
+    ) {
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            errorMessage?.let {
+                Text(it, Modifier.padding(horizontal = 16.dp, vertical = 6.dp),
+                    color = MaterialTheme.colorScheme.error, textAlign = TextAlign.Center)
+            }
+            LiquidButton(
+                onClick = onClick,
+                backdrop = backdrop,
+                modifier = Modifier.width(148.dp),
+                height = height,
+                enabled = enabled,
+                preserveMaterialWhenDisabled = true,
+                nativePrimaryColor = Color.Unspecified,
+                surfaceColor = CouiTheme.colorScheme.background.copy(alpha = 0.86f)
+            ) {
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(4.dp),
+                ) {
+                    Icon(icon, null, Modifier.size(24.dp), tint = ink)
+                    com.itos.coui.text.Text(
+                        text = label,
+                        kind = CouiTextKind.GroupTitle,
+                        color = ink,
+                        maxLines = 1,
+                    )
+                }
+            }
+        }
     }
 }

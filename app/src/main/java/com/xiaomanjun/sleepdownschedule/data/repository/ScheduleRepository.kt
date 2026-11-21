@@ -570,9 +570,11 @@ class ScheduleRepository(private val database: AppDatabase) {
         if (next != storedConfig) configDao.upsertConfig(next)
     }
 
+    internal val scheduleProfiles = profileDao.observeProfiles().distinctUntilChanged()
+
     private val multiScheduleState = combine(
         courseDao.observeAllCourses(),
-        profileDao.observeProfiles(),
+        scheduleProfiles,
         configDao.observeAllConfigs(),
         configDao.observeAllPeriods()
     ) { allCourses, schedules, allConfigs, allPeriods ->

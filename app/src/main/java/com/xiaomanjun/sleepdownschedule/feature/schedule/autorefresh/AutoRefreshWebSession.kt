@@ -1,176 +1,49 @@
 package com.xiaomanjun.sleepdownschedule.feature.schedule.autorefresh
 
-import android.webkit.CookieManager
+import android.annotation.SuppressLint
 import android.webkit.WebView
+import androidx.webkit.ProfileStore
 import androidx.webkit.WebViewCompat
 import androidx.webkit.WebViewFeature
-import kotlinx.coroutines.suspendCancellableCoroutine
-import org.json.JSONArray
-import org.json.JSONObject
-import java.net.URI
 import java.util.UUID
-import kotlin.coroutines.resume
 
-/** Persist only session fields consumed by reviewed adapters, encrypted with the profile. */
+/** Chromium owns the session. SleepDown persists only the binding and its verified page. */
+@SuppressLint("RequiresFeature")
 internal object AutoRefreshWebSession {
-    const val RestoreSessionExtra = "restore_retained_edu_session"
+    const val RestoreSessionExtra = "edu_restore_auto_refresh_session"
+    const val BindingExtra = "edu_refresh_binding"
+    private const val ProfilePrefix = "sleepdown_refresh_"
+    private val bindingPattern = Regex("[a-f0-9]{32}")
+    private var pruned = false
 
-    suspend fun restore(webView: WebView, profile: AutoRefreshScheduleProfile): AutoCloseable? {
-        val manager = CookieManager.getInstance().apply { setAcceptCookie(true) }
-        for (cookie in profile.cookies) {
-            if (origin(cookie.url) == null) continue
-            // A live browser session may be newer than the encrypted snapshot.
-            // Never replace a newer login in the process-wide jar with an older snapshot.
-            val current = manager.getCookie(cookie.url).orEmpty().split(';')
-                .map(String::trim).filter { it.contains('=') }
-                .associate { it.substringBefore('=').trim() to it.substringAfter('=', "").trim() }
-            for (entry in cookie.value.split(';').map(String::trim).filter { it.contains('=') }) {
-                if (entry.substringBefore('=').trim() in current) continue
-                // CookieManager cannot report attributes; keep Secure for https sessions so the
-                // server still receives the restored cookie. Path stays "/" as a safe superset.
-                val secure = if (cookie.url.startsWith("https://", true)) "; Secure" else ""
-                val restored = suspendCancellableCoroutine<Boolean> { continuation ->
-                    manager.setCookie(cookie.url, "$entry; Path=/$secure") { accepted ->
-                        if (continuation.isActive) continuation.resume(accepted)
-                    }
-                }
-                check(restored) { "教务登录凭证恢复失败，请重新登录" }
-            }
-        }
-        manager.flush()
-        return installStorage(webView, profile.schoolId, profile.webStorage)
+    fun newBindingId(): String = UUID.randomUUID().toString().replace("-", "")
+    fun isBindingId(id: String): Boolean = bindingPattern.matches(id)
+    fun profileName(id: String): String = ProfilePrefix + id
+    fun isSupported(): Boolean = WebViewFeature.isFeatureSupported(WebViewFeature.MULTI_PROFILE)
+
+    fun flush(webView: WebView) {
+        if (isSupported()) WebViewCompat.getProfile(webView).cookieManager.flush()
     }
 
-    private fun keys(schoolId: String): List<String> = when (schoolId) {
-        "AEPU", "BBGU" -> listOf("Authorization", "access_token", "token", "X-Access-Token", "x-token", "auth_token", "jwt", "user_token")
-        "HUAT" -> listOf("Admin-Token", "adminToken", "token", "X-Token", "x-token", "admin_token")
-        "CQIE" -> listOf("cqu_edu_ACCESS_TOKEN", "cqu_edu_CURRENT_TOKEN", "USER_INFO", "cqu_edu_USER_INFO")
-        "CQU" -> listOf("cqu_edu_ACCESS_TOKEN")
-        "GDOU" -> listOf("current-user", "visitorObj", "semester")
-        "GZTRC" -> listOf("user_info")
-        "HNNU" -> listOf("token")
-        "SWJTU" -> listOf("ytoken", "YToken", "token", "TOKEN")
-        "QHNU" -> listOf("sys-auth-token")
-        "YIBINU" -> listOf("ampUserId")
-        else -> emptyList()
+    /** Run on application startup, before any WebView can load a refresh profile. */
+    fun pruneRetiredProfiles(activeName: String?) {
+        if (pruned || !isSupported()) return
+        pruned = true
+        val store = ProfileStore.getInstance()
+        store.allProfileNames.filter { it.startsWith(ProfilePrefix) && it != activeName }
+            .forEach { runCatching { store.deleteProfile(it) } }
     }
 
-    fun captureCookies(urls: Collection<String>): List<AutoRefreshCookie> {
-        val manager = CookieManager.getInstance()
-        manager.flush()
-        // CookieManager only answers for a concrete path, so probe each URL and its origin root.
-        val probes = urls.flatMap { listOf(it, origin(it)?.plus("/")) }
-            .filterNotNull().filter { origin(it) != null }.distinct()
-        return probes.mapNotNull { url ->
-            manager.getCookie(url)?.takeIf(String::isNotBlank)?.let { AutoRefreshCookie(url, it) }
+    fun retire(name: String?) {
+        if (name == null || !name.startsWith(ProfilePrefix) || !isSupported()) return
+        val store = ProfileStore.getInstance()
+        // A loaded profile cannot be deleted in this process. Clear its session now and
+        // remove the isolated profile directory when the application next starts.
+        if (runCatching { store.deleteProfile(name) }.isSuccess) return
+        store.getProfile(name)?.let { profile ->
+            val cookies = profile.cookieManager
+            cookies.removeAllCookies { cookies.flush() }
+            profile.webStorage.deleteAllData()
         }
     }
-
-    suspend fun captureStorage(webView: WebView, schoolId: String): AutoRefreshWebStorage? =
-        suspendCancellableCoroutine { continuation ->
-            captureStorage(webView, schoolId) { if (continuation.isActive) continuation.resume(it) }
-        }
-
-    fun captureStorage(webView: WebView, schoolId: String, onCaptured: (AutoRefreshWebStorage?) -> Unit) {
-        val origin = origin(webView.url)
-        val keys = keys(schoolId)
-        if (origin == null || keys.isEmpty()) { onCaptured(null); return }
-        val script = """
-            (function() {
-                var keys = ${JSONArray(keys)}, values = {};
-                [['local', localStorage], ['session', sessionStorage]].forEach(function(pair) {
-                    keys.forEach(function(key) {
-                        var value = pair[1].getItem(key);
-                        if (value) values[pair[0] + ':' + key] = value;
-                    });
-                });
-                if (!Object.keys(values).length && ${schoolId == "HUAT"} && (window.token || window.userToken)) {
-                    values['session:token'] = window.token || window.userToken;
-                }
-                if (!Object.keys(values).length && ${schoolId in setOf("AEPU", "BBGU")}) {
-                    [localStorage, sessionStorage].some(function(storage) {
-                        return Object.keys(storage).some(function(key) {
-                            var value = storage.getItem(key);
-                            if (/^eyJ[A-Za-z0-9_-]+\.eyJ[A-Za-z0-9_-]+\./.test(value || '')) {
-                                values['session:token'] = value; return true;
-                            }
-                            return false;
-                        });
-                    });
-                }
-                return JSON.stringify({ values: values, windowName: ${schoolId == "YIBINU"} ? window.name : null });
-            })()
-        """.trimIndent()
-        webView.evaluateJavascript(script) { encoded ->
-            val storage = runCatching {
-                val json = JSONObject(JSONArray("[$encoded]").getString(0))
-                val values = json.getJSONObject("values")
-                val entries = values.keys().asSequence().filter { it.substringAfter(':') in keys }
-                    .associateWith(values::getString)
-                val windowName = json.optString("windowName").takeIf { it.isNotBlank() && it != "null" }
-                if (entries.isEmpty() && windowName == null) null else AutoRefreshWebStorage(origin, entries, windowName)
-            }.getOrNull()
-            onCaptured(storage)
-        }
-    }
-
-    fun installStorage(webView: WebView, schoolId: String, storage: AutoRefreshWebStorage?): AutoCloseable? {
-        storage ?: return null
-        require(WebViewFeature.isFeatureSupported(WebViewFeature.DOCUMENT_START_SCRIPT) &&
-            WebViewFeature.isFeatureSupported(WebViewFeature.WEB_MESSAGE_LISTENER)) {
-            "请更新 Android System WebView 后重新登录，以恢复教务会话"
-        }
-        require(origin(storage.origin) == storage.origin) { "教务会话来源无效，请重新登录" }
-        val permitted = keys(schoolId)
-        val values = JSONObject(storage.values.filterKeys { it.substringAfter(':') in permitted })
-        val windowName = if (schoolId == "YIBINU") storage.windowName else null
-        val bridgeName = "sleepdownRestore" + UUID.randomUUID().toString().replace("-", "")
-        var script: androidx.webkit.ScriptHandler? = null
-        var closed = false
-        val handle = AutoCloseable {
-            if (!closed) {
-                closed = true
-                script?.remove()
-                WebViewCompat.removeWebMessageListener(webView, bridgeName)
-            }
-        }
-        WebViewCompat.addWebMessageListener(webView, bridgeName, setOf(storage.origin)) { _, _, source, mainFrame, _ ->
-            if (mainFrame && origin(source.toString()) == storage.origin) handle.close()
-        }
-        try {
-            script = WebViewCompat.addDocumentStartJavaScript(webView,
-                storageRestoreScript(storage.origin, values.toString(), windowName, bridgeName), setOf(storage.origin))
-        } catch (error: Exception) {
-            handle.close()
-            throw error
-        }
-        return handle
-    }
-
-    internal fun storageRestoreScript(origin: String, valuesJson: String, windowName: String?, bridgeName: String): String = """
-        (function() {
-            if (window.top !== window || location.origin !== ${JSONObject.quote(origin)}) return;
-            var marker = ${JSONObject.quote("__" + bridgeName)};
-            var bridge = window[${JSONObject.quote(bridgeName)}];
-            if (sessionStorage.getItem(marker)) { bridge.postMessage('done'); return; }
-            sessionStorage.setItem(marker, '1');
-            var values = $valuesJson;
-            // A rotated live credential wins, including when the portal moved it between stores.
-            Object.keys(values).forEach(function(key) {
-                var name = key.slice(key.indexOf(':') + 1);
-                var storage = key.indexOf('local:') === 0 ? localStorage : sessionStorage;
-                if (localStorage.getItem(name) || sessionStorage.getItem(name)) return;
-                storage.setItem(name, values[key]);
-            });
-            var savedName = ${windowName?.let(JSONObject::quote) ?: "null"};
-            if (!window.name && savedName !== null) window.name = savedName;
-            bridge.postMessage('done');
-        })()
-    """.trimIndent()
-
-    fun origin(url: String?): String? = runCatching {
-        val uri = URI(url.orEmpty())
-        if (uri.scheme !in setOf("http", "https") || uri.host.isNullOrBlank() || uri.userInfo != null) null
-        else "${uri.scheme}://${uri.host}" + if (uri.port >= 0) ":${uri.port}" else ""
-    }.getOrNull()
 }

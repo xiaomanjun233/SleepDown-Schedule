@@ -1,8 +1,6 @@
 package com.xiaomanjun.sleepdownschedule.feature.agent
 
-import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -12,6 +10,10 @@ import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.xiaomanjun.sleepdownschedule.*
+import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.ChangePreviewBadge
+import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.ChangePreviewCard
+import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.ChangePreviewField
+import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.ChangePreviewTone
 import com.xiaomanjun.sleepdownschedule.domain.agent.AgentPlan
 import com.xiaomanjun.sleepdownschedule.domain.agent.AgentPlanPreview
 import com.xiaomanjun.sleepdownschedule.domain.agent.agentPeriodFragment
@@ -148,44 +150,35 @@ private fun agentSettingsPageLabel(page: String?): String = mapOf(
     "ABOUT" to "关于", "CHANGELOG" to "更新日志", "DOWNLOAD" to "下载", "DONATE" to "捐赠", "PRIVACY_POLICY" to "隐私政策"
 )[page] ?: "设置"
 
-@OptIn(ExperimentalLayoutApi::class)
 @Composable
 internal fun AgentPlanConfirmation(plan: AgentPlan, preview: AgentPlanPreview, facts: DayAgentFacts, foreground: Color, applied: Boolean = false) {
     val dark = foreground.luminance() > 0.5f
     Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
         Text(if (applied) "已保存的变更" else "待确认变更", color = foreground, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
         plan.actions.forEach { action ->
-            Column(Modifier.fillMaxWidth().background(foreground.copy(alpha = 0.045f), RoundedCornerShape(14.dp)).padding(12.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    agentChangeKinds(action).forEach { kind ->
-                        val color = when (kind) {
-                            AgentChangeKind.MOVE -> if (dark) Color(0xFF79B9FF) else Color(0xFF165FC0)
-                            AgentChangeKind.DELETE -> if (dark) Color(0xFFFF8A83) else Color(0xFFBB2525)
-                            AgentChangeKind.RENAME -> if (dark) Color(0xFFFFD36B) else Color(0xFF856100)
-                            AgentChangeKind.ADD -> if (dark) Color(0xFF80DDA7) else Color(0xFF16713C)
-                            else -> if (dark) Color(0xFFC0ADFF) else Color(0xFF6846B8)
-                        }
-                        Text(kind.label, Modifier.background(color.copy(alpha = 0.12f), RoundedCornerShape(6.dp)).padding(horizontal = 7.dp, vertical = 3.dp),
-                            color = color, style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold)
+            val title = action.original?.name ?: action.edited?.name ?: when (action.type) {
+                AgentValidatedActionType.SET_SETTING -> AgentSettingRegistry.definitions.firstOrNull { it.key == action.settingKey }?.description ?: "节次时间"
+                AgentValidatedActionType.SET_PERIOD_SETTINGS -> "节次与作息"
+                AgentValidatedActionType.SET_ADJUSTMENTS -> "停课与补课"
+                AgentValidatedActionType.ACTIVATE_SCHEDULE, AgentValidatedActionType.DELETE_SCHEDULE ->
+                    facts.schedules.firstOrNull { it.id == action.scheduleId }?.name ?: "目标课表"
+                AgentValidatedActionType.OPEN_IMPORT -> "导入课程"
+                else -> action.scheduleName ?: agentSettingsPageLabel(action.settingsPage)
+            }
+            ChangePreviewCard(title, foreground, badges = {
+                agentChangeKinds(action).forEach { kind ->
+                    val tone = when (kind) {
+                        AgentChangeKind.MOVE -> ChangePreviewTone.Move
+                        AgentChangeKind.DELETE -> ChangePreviewTone.Remove
+                        AgentChangeKind.RENAME -> ChangePreviewTone.Rename
+                        AgentChangeKind.ADD -> ChangePreviewTone.Add
+                        else -> ChangePreviewTone.Edit
                     }
+                    ChangePreviewBadge(kind.label, tone, foreground)
                 }
-                val title = action.original?.name ?: action.edited?.name ?: when (action.type) {
-                    AgentValidatedActionType.SET_SETTING -> AgentSettingRegistry.definitions.firstOrNull { it.key == action.settingKey }?.description ?: "节次时间"
-                    AgentValidatedActionType.SET_PERIOD_SETTINGS -> "节次与作息"
-                    AgentValidatedActionType.SET_ADJUSTMENTS -> "停课与补课"
-                    AgentValidatedActionType.ACTIVATE_SCHEDULE, AgentValidatedActionType.DELETE_SCHEDULE ->
-                        facts.schedules.firstOrNull { it.id == action.scheduleId }?.name ?: "目标课表"
-                    AgentValidatedActionType.OPEN_IMPORT -> "导入课程"
-                    else -> action.scheduleName ?: agentSettingsPageLabel(action.settingsPage)
-                }
-                Text(title, color = foreground, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.SemiBold)
+            }) {
                 agentChangeRows(action, facts).forEach { row ->
-                    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                        Text(row.label, color = foreground.copy(alpha = 0.62f), style = MaterialTheme.typography.labelMedium)
-                        row.before?.let { Text("原来：$it", color = foreground.copy(alpha = 0.70f), style = MaterialTheme.typography.bodyMedium) }
-                        Text((if (row.before != null) "改为：" else "") + row.after, color = foreground, style = MaterialTheme.typography.bodyMedium)
-                    }
+                    ChangePreviewField(row.label, row.before, row.after, foreground)
                 }
             }
         }

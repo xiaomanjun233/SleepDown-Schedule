@@ -4,10 +4,8 @@ import android.content.Context
 import android.security.keystore.KeyGenParameterSpec
 import android.security.keystore.KeyProperties
 import android.util.Base64
-import androidx.core.content.edit
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
-import org.json.JSONArray
 import org.json.JSONObject
 import java.security.KeyStore
 import javax.crypto.Cipher
@@ -15,38 +13,52 @@ import javax.crypto.KeyGenerator
 import javax.crypto.SecretKey
 import javax.crypto.spec.GCMParameterSpec
 
-internal data class AutoRefreshCookie(
-    val url: String,
-    val value: String
-)
-
-internal data class AutoRefreshWebStorage(
-    val origin: String,
-    val values: Map<String, String>,
-    val windowName: String? = null
-)
+internal enum class RefreshConnection(val label: String) {
+    Legacy("需要重新连接"),
+    Ready("已连接"),
+    BrowserOnly("仅手动核对"),
+    SignInRequired("需要重新登录"),
+    OptionsRequired("需要重新确认教务选项"),
+    AdapterChanged("需要重新验证适配器"),
+    ScheduleMissing("待选择目标课表")
+}
 
 internal data class AutoRefreshScheduleProfile(
     val schoolId: String,
     val schoolName: String,
     val adapterId: String,
     val adapterName: String,
-    val username: String,
-    val password: String,
     val scheduleId: Int,
-    val cookies: List<AutoRefreshCookie> = emptyList(),
+    val bindingId: String? = null,
+    val isolatedBrowser: Boolean = false,
+    val adapterSource: String? = null,
+    val scriptFingerprint: String? = null,
+    val connection: RefreshConnection = RefreshConnection.Legacy,
     val automatic: Boolean = false,
-    val sessionOnly: Boolean = false,
     val frequencyMinutes: Long = AutoRefreshFrequency.DailyMinutes,
     val authenticatedUrl: String? = null,
     val desktopMode: Boolean = false,
-    val webStorage: AutoRefreshWebStorage? = null,
     val interactionAnswers: Map<String, String> = emptyMap(),
     val avatarPath: String? = null,
     val lastRefreshAt: Long = 0,
     val lastResult: String = "尚未刷新"
 ) {
-    val automaticRefreshEnabled: Boolean get() = automatic && !sessionOnly
+    val browserProfileName: String? get() = bindingId?.takeIf { isolatedBrowser }
+        ?.let(AutoRefreshWebSession::profileName)
+    val canCheckInBackground: Boolean get() = connection == RefreshConnection.Ready &&
+        browserProfileName != null && scriptFingerprint != null && authenticatedUrl != null
+    val automaticRefreshEnabled: Boolean get() = automatic && canCheckInBackground
+
+    fun matches(school: String, adapter: String, schedule: Int): Boolean =
+        schoolId == school && adapterId == adapter && scheduleId == schedule
+
+    fun withTargetSchedule(id: Int): AutoRefreshScheduleProfile = copy(
+        scheduleId = id,
+        // The worker records ScheduleMissing only when checking a verified connection.
+        connection = if (connection == RefreshConnection.ScheduleMissing) RefreshConnection.Ready else connection,
+        lastRefreshAt = 0,
+        lastResult = "已设置自动刷新的目标课表"
+    )
 }
 
 internal object AutoRefreshScheduleStore {
@@ -73,7 +85,7 @@ internal object AutoRefreshScheduleStore {
                 ?: throw IllegalStateException("无法加密保存教务登录信息")
             val committed = context.applicationContext.getSharedPreferences(PrefsName, Context.MODE_PRIVATE)
                 .edit().putString(PayloadKey, encrypted).commit()
-            check(committed) { "登录凭证保存失败，请重试" }
+            check(committed) { "教务绑定保存失败，请重试" }
             initialized = true
             state.value = profile
         }
@@ -89,9 +101,8 @@ internal object AutoRefreshScheduleStore {
 
     fun clear(context: Context) {
         synchronized(lock) {
-            context.applicationContext.getSharedPreferences(PrefsName, Context.MODE_PRIVATE).edit(commit = true) {
-                remove(PayloadKey)
-            }
+            val preferences = context.applicationContext.getSharedPreferences(PrefsName, Context.MODE_PRIVATE)
+            check(preferences.edit().remove(PayloadKey).commit()) { "移除教务绑定失败，请重试" }
             initialized = true
             state.value = null
         }
@@ -106,7 +117,7 @@ internal object AutoRefreshScheduleStore {
                 .getString(PayloadKey, null)
             state.value = encrypted
                 ?.let(::decrypt)
-                ?.let { json -> runCatching { JSONObject(json).toProfile() }.getOrNull() }
+                ?.let { json -> runCatching { parseAutoRefreshProfile(JSONObject(json)) }.getOrNull() }
             initialized = true
         }
     }
@@ -116,66 +127,20 @@ internal object AutoRefreshScheduleStore {
         .put("schoolName", schoolName)
         .put("adapterId", adapterId)
         .put("adapterName", adapterName)
-        .put("username", username)
-        .put("password", password)
         .put("scheduleId", scheduleId)
+        .put("bindingId", bindingId)
+        .put("isolatedBrowser", isolatedBrowser)
+        .put("adapterSource", adapterSource)
+        .put("scriptFingerprint", scriptFingerprint)
+        .put("connection", connection.name)
         .put("automatic", automatic)
-        .put("sessionOnly", sessionOnly)
         .put("frequencyMinutes", frequencyMinutes)
         .put("authenticatedUrl", authenticatedUrl)
         .put("desktopMode", desktopMode)
-        .put("webStorage", webStorage?.let {
-            JSONObject().put("origin", it.origin).put("values", JSONObject(it.values)).put("windowName", it.windowName)
-        })
         .put("interactionAnswers", JSONObject(interactionAnswers))
         .put("avatarPath", avatarPath)
         .put("lastRefreshAt", lastRefreshAt)
         .put("lastResult", lastResult)
-        .put("cookies", JSONArray().apply {
-            cookies.forEach { cookie ->
-                put(JSONObject().put("url", cookie.url).put("value", cookie.value))
-            }
-        })
-
-    private fun JSONObject.toProfile(): AutoRefreshScheduleProfile {
-        val cookieArray = optJSONArray("cookies") ?: JSONArray()
-        return AutoRefreshScheduleProfile(
-            schoolId = getString("schoolId"),
-            schoolName = getString("schoolName"),
-            adapterId = getString("adapterId"),
-            adapterName = optString("adapterName"),
-            username = getString("username"),
-            password = getString("password"),
-            scheduleId = getInt("scheduleId"),
-            cookies = buildList {
-                repeat(cookieArray.length()) { index ->
-                    val item = cookieArray.optJSONObject(index) ?: return@repeat
-                    val url = item.optString("url")
-                    val value = item.optString("value")
-                    if (url.isNotBlank() && value.isNotBlank()) add(AutoRefreshCookie(url, value))
-                }
-            },
-            automatic = optBoolean("automatic", false),
-            sessionOnly = optBoolean("sessionOnly", false),
-            frequencyMinutes = AutoRefreshFrequency.normalize(optLong("frequencyMinutes", AutoRefreshFrequency.DailyMinutes)),
-            authenticatedUrl = optString("authenticatedUrl").takeIf { it.startsWith("https://") || it.startsWith("http://") },
-            desktopMode = optBoolean("desktopMode", false),
-            webStorage = optJSONObject("webStorage")?.let { storage ->
-                val values = storage.optJSONObject("values") ?: JSONObject()
-                AutoRefreshWebStorage(
-                    storage.getString("origin"),
-                    values.keys().asSequence().associateWith(values::getString),
-                    storage.optString("windowName").takeIf { it.isNotBlank() && it != "null" }
-                )
-            },
-            interactionAnswers = optJSONObject("interactionAnswers")?.let { answers ->
-                answers.keys().asSequence().associateWith(answers::getString)
-            }.orEmpty(),
-            avatarPath = optString("avatarPath").takeIf(String::isNotBlank),
-            lastRefreshAt = optLong("lastRefreshAt"),
-            lastResult = optString("lastResult", "尚未刷新")
-        )
-    }
 
     private fun encrypt(value: String): String? = runCatching {
         val cipher = Cipher.getInstance("AES/GCM/NoPadding")
@@ -214,4 +179,33 @@ internal object AutoRefreshScheduleStore {
             generateKey()
         }
     }
+}
+
+internal fun parseAutoRefreshProfile(json: JSONObject): AutoRefreshScheduleProfile = with(json) {
+    val bindingId = optString("bindingId").takeIf { AutoRefreshWebSession.isBindingId(it) }
+    val connection = RefreshConnection.entries.firstOrNull { it.name == optString("connection") }
+        ?.takeIf { bindingId != null } ?: RefreshConnection.Legacy
+    AutoRefreshScheduleProfile(
+        schoolId = getString("schoolId"),
+        schoolName = getString("schoolName"),
+        adapterId = getString("adapterId"),
+        adapterName = optString("adapterName"),
+        scheduleId = getInt("scheduleId"),
+        bindingId = bindingId,
+        isolatedBrowser = optBoolean("isolatedBrowser"),
+        adapterSource = optString("adapterSource").takeIf(String::isNotBlank),
+        scriptFingerprint = optString("scriptFingerprint").takeIf { it.matches(Regex("[0-9a-f]{64}")) },
+        connection = connection,
+        automatic = optBoolean("automatic", false),
+        frequencyMinutes = AutoRefreshFrequency.normalize(optLong("frequencyMinutes", AutoRefreshFrequency.DailyMinutes)),
+        authenticatedUrl = optString("authenticatedUrl").takeIf { bindingId != null && AutoRefreshLoginRoutes.isSessionPage(it) },
+        desktopMode = optBoolean("desktopMode"),
+        interactionAnswers = optJSONObject("interactionAnswers")?.takeIf { bindingId != null }?.let { answers ->
+            answers.keys().asSequence().associateWith(answers::getString)
+        }.orEmpty(),
+        avatarPath = optString("avatarPath").takeIf(String::isNotBlank),
+        lastRefreshAt = optLong("lastRefreshAt"),
+        lastResult = if (connection == RefreshConnection.Legacy) "请重新连接教务以启用新的刷新会话"
+            else optString("lastResult", "尚未刷新")
+    )
 }

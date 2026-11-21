@@ -32,11 +32,10 @@ private val ExplicitUriScheme = Regex("^[A-Za-z][A-Za-z0-9+.-]*:")
 
 /** Call before navigation or configuring the view, including its popups. */
 @SuppressLint("RequiresFeature")
-internal fun WebView.eduImportCookieManager(standaloneImport: Boolean): CookieManager {
-    if (standaloneImport && WebViewFeature.isFeatureSupported(WebViewFeature.MULTI_PROFILE)) {
-        // Auto refresh restores saved credentials into the default profile. The interactive
-        // browser has its own persistent cookies and site storage managed by Chromium.
-        WebViewCompat.setProfile(this, "sleepdown_edu_import")
+internal fun WebView.eduImportCookieManager(standaloneImport: Boolean, profileName: String? = null): CookieManager {
+    val name = profileName ?: "sleepdown_edu_import".takeIf { standaloneImport }
+    if (name != null && WebViewFeature.isFeatureSupported(WebViewFeature.MULTI_PROFILE)) {
+        WebViewCompat.setProfile(this, name)
         return WebViewCompat.getProfile(this).cookieManager
     }
     return CookieManager.getInstance()

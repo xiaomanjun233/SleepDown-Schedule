@@ -52,20 +52,18 @@ internal object ShiguangApiAdapterCatalog {
             require(adapters.map { "${it.school.id}/${it.adapterId}" }.distinct().size == adapters.size)
         }
 
-    fun find(adapters: List<EduAdapter>, schoolId: String, adapterId: String): EduAdapter? =
-        adapters.firstOrNull { it.school.id == schoolId && it.adapterId == adapterId }
+    fun find(adapters: List<EduAdapter>, schoolId: String, adapterId: String, source: String? = null): EduAdapter? =
+        adapters.firstOrNull { it.school.id == schoolId && it.adapterId == adapterId &&
+            (source == null || it.source.name == source) }
             ?: if (schoolId == localEduSchoolId(adapterId)) publishedAiEduAdapter(adapters, adapterId) else null
 
-    suspend fun resolveScript(context: Context, adapter: EduAdapter): String {
+    suspend fun backgroundScriptOrNull(context: Context, adapter: EduAdapter): String? {
         val source = ShiguangWarehouse.resolveScript(context, adapter)
         if (ShiguangWarehouse.isLocalTestAdapter(adapter)) {
             val reviewed = loadLocalReviewed(context).firstOrNull { key(it) == key(adapter) }
-            require(reviewed != null && matchesReviewedSource(reviewed, source)) {
-                "本地测试适配器尚未通过自动刷新校验"
-            }
+            if (reviewed == null || !matchesReviewedSource(reviewed, source)) return null
         }
-        require(isLikelyApiAdapter(adapter, source)) { "该教务入口需要打开网页手动刷新课表" }
-        return source
+        return source.takeIf { isLikelyApiAdapter(adapter, it) }
     }
 
     /** A course request may return JSON or HTML; DOM-only page scraping stays in the visible flow. */
@@ -82,11 +80,12 @@ internal object ShiguangApiAdapterCatalog {
 
     internal fun matchesReviewedSource(adapter: EduAdapter, source: String): Boolean {
         if (source.isBlank()) return false
-        val canonical = source.replace("\r\n", "\n").trimEnd() + "\n"
-        val digest = MessageDigest.getInstance("SHA-256").digest(canonical.toByteArray(Charsets.UTF_8))
-            .joinToString("") { "%02x".format(it) }
-        return digest == adapter.warehouseGeneration
+        return fingerprint(source) == adapter.warehouseGeneration
     }
 
-    fun isSwuAdapter(adapter: EduAdapter): Boolean = adapter.school.id == "SWU"
+    fun fingerprint(source: String): String {
+        val canonical = source.replace("\r\n", "\n").trimEnd() + "\n"
+        return MessageDigest.getInstance("SHA-256").digest(canonical.toByteArray(Charsets.UTF_8))
+            .joinToString("") { "%02x".format(it) }
+    }
 }
