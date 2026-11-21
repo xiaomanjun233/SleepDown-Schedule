@@ -3,6 +3,7 @@ package com.itos.coui.text
 import android.content.res.Configuration
 import android.graphics.Paint
 import android.graphics.Typeface
+import android.os.Build
 import androidx.compose.ui.text.PlatformTextStyle
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
@@ -11,6 +12,15 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.LineHeightStyle
 import androidx.compose.ui.unit.Density
 import kotlin.math.roundToInt
+
+internal fun couiWeightedTypeface(family: String, weight: Int): Typeface {
+    val base = Typeface.create(family, Typeface.NORMAL)
+    return when {
+        Build.VERSION.SDK_INT >= Build.VERSION_CODES.P -> Typeface.create(base, weight, false)
+        weight >= 600 -> Typeface.create(base, Typeface.BOLD)
+        else -> base
+    }
+}
 
 /** 共用 TextView 字体度量和行距算法，角色、字体来源及预设仍由组件持有。 */
 internal fun couiTextStyle(typeface: Typeface, weight: Int, pixels: Float, lineSpacing: Float,

@@ -1,6 +1,5 @@
 package com.itos.coui.sheet
 
-import android.graphics.Typeface
 import android.os.Build
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
@@ -9,6 +8,7 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.unit.sp
 import com.itos.coui.text.couiTextStyle
+import com.itos.coui.text.couiWeightedTypeface
 import kotlin.math.roundToInt
 
 internal enum class SheetTextKind { Title, Button }
@@ -21,7 +21,7 @@ internal fun rememberSheetTextStyle(kind: SheetTextKind): TextStyle {
     return remember(kind, configuration, density) {
         val title = kind == SheetTextKind.Title
         val weight = if (title) 550 else 500
-        val typeface = Typeface.create(Typeface.create("sans-serif-medium", Typeface.NORMAL), weight, false)
+        val typeface = couiWeightedTypeface("sans-serif-medium", weight)
         // 原厂标题使用 sp，菜单的 coui_action_text_menu_size 明确为 dp。
         val pixels = if (title) with(density) { 18.sp.toPx() } else 14f * density.density
         val spacing = if (title) {

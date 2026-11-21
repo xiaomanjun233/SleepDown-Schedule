@@ -4,6 +4,7 @@ package com.kyant.backdrop.catalog.utils
 
 import android.graphics.RuntimeShader
 import android.os.Build
+import androidx.annotation.RequiresApi
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FiniteAnimationSpec
 import androidx.compose.animation.core.VectorConverter
@@ -54,37 +55,18 @@ class InteractiveHighlight(
     val pressProgress: Float get() = pressProgressAnimation.value
     val offset: Offset get() = positionAnimation.value - startPosition
 
-    private val shader by lazy {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            RuntimeShader(
-                """
-uniform float2 size;
-layout(color) uniform half4 color;
-uniform float radius;
-uniform float2 position;
-
-half4 main(float2 coord) {
-    float dist = distance(coord, position);
-    float intensity = smoothstep(radius, radius * 0.5, dist);
-    return color * intensity;
-}"""
-            )
-        } else {
-            null
-        }
-    }
+    private var runtimeHighlight: RuntimeHighlight? = null
 
     private fun DrawScope.drawHighlightLayer() {
         if (com.xiaomanjun.sleepdownschedule.core.performance.AppMaterialPreferences.isSuperPerformance) return
-        val shader = this@InteractiveHighlight.shader
         val progress = pressProgressAnimation.value
-        val highlightPosition = exactExternalPosition ?: releasePosition ?: positionAnimation.value
         if (progress <= 0f) return
+        val highlightPosition = exactExternalPosition ?: releasePosition ?: positionAnimation.value
+        val center = position(size, highlightPosition)
+        val spotRadius = radius(size)
         // A white spot alone clips to white on a light settings page. A faint, neutral falloff
         // around its rim keeps the same moving light visible without coloring the selected row.
         if (contrastHalo.alpha > 0f) {
-            val center = position(size, highlightPosition)
-            val haloRadius = radius(size)
             drawCircle(
                 brush = Brush.radialGradient(
                     0f to Color.Transparent,
@@ -92,54 +74,30 @@ half4 main(float2 coord) {
                     0.76f to contrastHalo.copy(alpha = contrastHalo.alpha * progress),
                     1f to Color.Transparent,
                     center = center,
-                    radius = haloRadius
+                    radius = spotRadius
                 ),
-                radius = haloRadius,
+                radius = spotRadius,
                 center = center
             )
         }
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU && shader != null) {
-            if (ambientAlpha > 0f) {
-                drawRect(
-                    Color.White.copy(ambientAlpha * progress),
-                    blendMode = BlendMode.Plus
-                )
-            }
-            shader.apply {
-                val position = position(size, highlightPosition)
-                setFloatUniform("size", size.width, size.height)
-                setColorUniform("color", Color.White.copy(spotAlpha * progress).toArgb())
-                setFloatUniform("radius", radius(size))
-                setFloatUniform(
-                    "position",
-                    position.x.fastCoerceIn(0f, size.width),
-                    position.y.fastCoerceIn(0f, size.height)
-                )
-            }
-            drawRect(
-                ShaderBrush(shader),
-                blendMode = BlendMode.Plus
-            )
+        if (ambientAlpha > 0f) {
+            drawRect(Color.White.copy(ambientAlpha * progress), blendMode = BlendMode.Plus)
+        }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            val renderer = runtimeHighlight ?: RuntimeHighlight().also { runtimeHighlight = it }
+            renderer.draw(this, center, spotRadius, Color.White.copy(spotAlpha * progress))
         } else {
-            if (ambientAlpha > 0f) {
-                drawRect(
-                    Color.White.copy(ambientAlpha * progress),
-                    blendMode = BlendMode.Plus
-                )
-            }
-            val resolvedPosition = position(size, highlightPosition)
-            val resolvedRadius = radius(size)
             drawCircle(
                 brush = Brush.radialGradient(
                     colors = listOf(
                         Color.White.copy(fallbackAlpha * progress),
                         Color.Transparent
                     ),
-                    center = resolvedPosition,
-                    radius = resolvedRadius
+                    center = center,
+                    radius = spotRadius
                 ),
-                radius = resolvedRadius,
-                center = resolvedPosition,
+                radius = spotRadius,
+                center = center,
                 blendMode = BlendMode.Plus
             )
         }
@@ -266,4 +224,34 @@ half4 main(float2 coord) {
                 settle(cancellationGeneration)
             }
         }
+}
+
+@RequiresApi(Build.VERSION_CODES.TIRAMISU)
+private class RuntimeHighlight {
+    private val shader = RuntimeShader(
+        """
+uniform float2 size;
+layout(color) uniform half4 color;
+uniform float radius;
+uniform float2 position;
+
+half4 main(float2 coord) {
+    float dist = distance(coord, position);
+    float intensity = smoothstep(radius, radius * 0.5, dist);
+    return color * intensity;
+}"""
+    )
+    private val brush = ShaderBrush(shader)
+
+    fun draw(scope: DrawScope, center: Offset, radius: Float, color: Color) = with(scope) {
+        shader.setFloatUniform("size", size.width, size.height)
+        shader.setColorUniform("color", color.toArgb())
+        shader.setFloatUniform("radius", radius)
+        shader.setFloatUniform(
+            "position",
+            center.x.fastCoerceIn(0f, size.width),
+            center.y.fastCoerceIn(0f, size.height)
+        )
+        drawRect(brush, blendMode = BlendMode.Plus)
+    }
 }

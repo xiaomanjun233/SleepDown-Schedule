@@ -59,6 +59,7 @@ import androidx.compose.ui.unit.dp
 // with the same two color layers in both themes (Wallpapers 17.04.0034, classes2.dex).
 internal const val CouiCourseBlurRadiusPx = 25f
 
+@RequiresApi(29)
 private fun couiCourseMaterial(dark: Boolean) =
     CouiTopAppBarButtonDefaults.systemMaterial(dark, capsule = false).copy(
         blurRadius = CouiCourseBlurRadiusPx,
@@ -190,14 +191,15 @@ internal fun CouiMaterialSurface(
             fabShadow.copy(layout = Rect(-side, fabShadow.layout.top, side, bottom))
         }
         val cornerRadius: (Size) -> Float? = { size -> colorOsMaterialCorners(shape(), size, density, direction)?.radius }
+        val causticPrograms = wallpaperSampling?.takeIf { flatBacking == null && it.hasStaticBitmap }?.causticPrograms
         if (flatBacking != null) {
             Modifier.drawCouiCaustic(flatBacking, cornerRadius, projection)
-        } else if (wallpaperSampling?.hasStaticBitmap == true) {
+        } else if (wallpaperSampling?.hasStaticBitmap == true && causticPrograms != null) {
             Modifier.drawCouiCaustic(
-                sample = { coordinates, padding -> wallpaperSampling.textureRenderer.shader(
+                sample = { coordinates, padding -> wallpaperSampling.textureRenderer?.shader(
                     wallpaperSampling, coordinates, 0f, androidx.compose.ui.geometry.Offset(-padding, -padding)) },
                 redraw = samplingKey, cornerRadius = cornerRadius, shadow = projection,
-                programs = wallpaperSampling.causticPrograms)
+                programs = causticPrograms)
         } else if (backdrop != null) {
             Modifier.drawCouiCaustic(backdrop, cornerRadius, projection,
                 sampleScale = if (preparedBackdrop != null) 0.5f else 1f)
@@ -256,7 +258,7 @@ internal fun CouiMaterialSurface(
     val decoration = Modifier.drawWithCache {
         val corners = if (lighting) colorOsMaterialCorners(shape(), size, this, layoutDirection) else null
         val painter = if (sharedContour && corners != null)
-            wallpaperSampling!!.contourPrograms.forGeometry(size, this.density, corners.radius, corners.weight) else contour
+            wallpaperSampling?.contourPrograms?.forGeometry(size, this.density, corners.radius, corners.weight) else contour
         if (corners != null && paint != null && painter != null) {
             paint.shader = painter.shader(size, this.density, corners.radius,
                 if (menu) corners.weight.coerceAtLeast(2f) else corners.weight,

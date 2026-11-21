@@ -1,7 +1,6 @@
 package com.itos.coui.topappbar
 
 import android.graphics.Paint
-import android.graphics.Typeface
 import androidx.compose.runtime.remember
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -28,6 +27,7 @@ import com.itos.coui.search.CouiSearchBarState
 import com.itos.coui.search.rememberCouiSearchBarState
 import com.itos.coui.text.CouiTextKind
 import com.itos.coui.text.couiTextStyle
+import com.itos.coui.text.couiWeightedTypeface
 import com.itos.coui.text.rememberCouiTextStyle
 import kotlin.math.roundToInt
 
@@ -57,13 +57,13 @@ fun CollapsingTopAppBar(
     val searchExpanded = hasSearchBar && searchState.expanded
     val searchScrollLocked = hasSearchBar && searchState.blocksHeaderScroll
     val titleColor = if (color == Color.Unspecified) CouiTheme.colorSchemeFor(dark).onSurface else color
+    val titleTypeface = remember(density) { couiWeightedTypeface("sans-serif-semibold", 700) }
     val titleStyle = if (hasSearchBar) rememberCouiTextStyle(CouiTextKind.HomeTitle) else remember(density) {
-        val typeface = Typeface.create(Typeface.create("sans-serif-semibold", Typeface.NORMAL), 700, false)
-        couiTextStyle(typeface, 700, with(density) { CouiCollapsingAppBarDefaults.expandedTitleSize.toPx() },
+        couiTextStyle(titleTypeface, 700, with(density) { CouiCollapsingAppBarDefaults.expandedTitleSize.toPx() },
             1f, includeFontPadding = false, density = density)
     }
     val descent = remember(titleStyle, density) { Paint().apply {
-        typeface = Typeface.create(Typeface.create("sans-serif-semibold", Typeface.NORMAL), 700, false)
+        typeface = titleTypeface
         textSize = with(density) { titleStyle.fontSize.toPx() }
     }.fontMetrics.descent }
     val titleHeight = with(density) {

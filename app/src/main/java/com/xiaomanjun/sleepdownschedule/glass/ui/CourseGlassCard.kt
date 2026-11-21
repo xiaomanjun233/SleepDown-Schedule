@@ -476,7 +476,7 @@ fun CourseGlassCard(
             }
             val surfaceModifier = if (!renderSurface) {
                 Modifier
-            } else if (useGlass && preparedWallpaper?.supportsTexture == true &&
+            } else if (Build.VERSION.SDK_INT >= 33 && useGlass && preparedWallpaper?.supportsTexture == true &&
                 morphAllocation == null && surfaceBackdrop == null) {
                 Modifier.matchParentSize().courseTexture(
                     source = preparedWallpaper,
@@ -504,7 +504,7 @@ fun CourseGlassCard(
                             allocationPaddingPx = morphAllocation?.paddingPx,
                             onDrawSurface = if (unifiedLiquidSurface) liquidSurfaceDraw else null
                     )
-            } else if (simpleBlurBackdrop != null && preparedWallpaper?.supportsTexture == true &&
+            } else if (Build.VERSION.SDK_INT >= 33 && simpleBlurBackdrop != null && preparedWallpaper?.supportsTexture == true &&
                 morphAllocation == null && surfaceBackdrop == null) {
                 Modifier.matchParentSize().courseTexture(
                     source = preparedWallpaper, shape = stableCardShape, enabled = stableMaterialEnabled,

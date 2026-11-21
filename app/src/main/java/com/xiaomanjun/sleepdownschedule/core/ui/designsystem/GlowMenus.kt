@@ -1,7 +1,6 @@
 package com.xiaomanjun.sleepdownschedule.core.ui.designsystem
 
-import android.graphics.BlendMode
-import android.os.Build
+import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.absoluteOffset
 import androidx.compose.foundation.layout.size
@@ -56,9 +55,7 @@ private fun actionMenuStyle(dark: Boolean, placement: CouiMenuPlacement) = CouiM
     contourStyle = CouiMenuContourStyle.White,
     // OVERLAY on a dark material has almost no headroom at the stock .1 setting.
     spotlightIntensity = if (dark) 0.45f else 0.85f,
-    spotlightBlendMode = if (Build.VERSION.SDK_INT >= 29) {
-        if (dark) BlendMode.PLUS else BlendMode.OVERLAY
-    } else null,
+    spotlightBlendMode = if (dark) BlendMode.Plus else BlendMode.Overlay,
     placement = placement,
 )
 

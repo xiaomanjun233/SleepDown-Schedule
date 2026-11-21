@@ -2,6 +2,7 @@ package com.itos.coui.picker
 
 import android.graphics.Paint
 import android.graphics.Typeface
+import com.itos.coui.text.couiWeightedTypeface
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.gestures.awaitEachGesture
@@ -134,7 +135,7 @@ fun WheelPicker(
     DisposableEffect(motion) { onDispose { motion.dispose() } }
     val paint = remember(normal, clockTypeface) { Paint(Paint.ANTI_ALIAS_FLAG).apply {
         this.textSize = normal.toFloat(); textAlign = Paint.Align.CENTER
-        typeface = if (clockTypeface) Typeface.create(Typeface.create("sys-sans-en", Typeface.NORMAL), 500, false)
+        typeface = if (clockTypeface) couiWeightedTypeface("sys-sans-en", 500)
             else Typeface.create("sans-serif-medium", Typeface.NORMAL)
     } }
     val normalColor = colors.normal

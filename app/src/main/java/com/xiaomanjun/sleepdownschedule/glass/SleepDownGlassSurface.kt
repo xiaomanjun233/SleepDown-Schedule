@@ -1,5 +1,6 @@
 package com.xiaomanjun.sleepdownschedule.glass
 
+import android.os.Build
 import com.xiaomanjun.sleepdownschedule.glass.ui.*
 import com.xiaomanjun.sleepdownschedule.core.performance.*
 import androidx.compose.material3.MaterialTheme
@@ -422,10 +423,10 @@ fun Modifier.sleepDownGlassSurface(
     }
     val stableOnDrawSurface: (DrawScope.() -> Unit)? = remember(onDrawSurface != null, sampleBackdrop, diagnosticSceneState, descriptor, textureSource) {
         if (textureSource == null && onDrawSurface == null && (sampleBackdrop || diagnosticSceneState == null)) null else ({
-            if (textureSource != null) {
+            if (Build.VERSION.SDK_INT >= 33 && textureSource != null) {
                 currentSampleRecordKey.value.invoke()
                 textureCoordinates?.coordinates?.takeIf { it.isAttached }?.let { target ->
-                    with(textureSource.textureRenderer) {
+                    textureSource.textureRenderer?.run {
                         draw(textureSource, target, resolvedShape.value, currentMaterialFrame.value, null,
                             currentMaterialFrame.value.blur?.toPx() ?: 0f)
                     }

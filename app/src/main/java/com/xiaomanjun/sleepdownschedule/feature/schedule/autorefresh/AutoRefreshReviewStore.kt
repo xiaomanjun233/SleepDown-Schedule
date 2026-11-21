@@ -20,6 +20,7 @@ internal data class PendingScheduleRefresh(
     val scheduleId: Int,
     val schoolId: String,
     val adapterId: String,
+    val bindingId: String? = null,
     val schoolName: String,
     val before: List<RefreshCourse>,
     val beforeOriginalTimes: Map<Long, String?>,
@@ -40,6 +41,9 @@ internal data class PendingScheduleRefresh(
     val remoteKey get() = refreshDigest(listOf(scheduleId, schoolId, adapterId,
         after.map { it.contentKey().toString() }.sorted(), afterTerm).toString())
 
+    fun belongsTo(profile: AutoRefreshScheduleProfile?): Boolean = profile != null &&
+        bindingId == profile.bindingId && profile.matches(schoolId, adapterId, scheduleId)
+
     fun rebase(state: AppState) = copy(id = UUID.randomUUID().toString(),
         before = state.courses.map(RefreshCourse::from), beforeTerm = RefreshTerm.from(state.config),
         beforeOriginalTimes = comparisonClocks(state),
@@ -49,6 +53,7 @@ internal data class PendingScheduleRefresh(
         fun create(profile: AutoRefreshScheduleProfile, state: AppState,
             courses: List<CourseEntity>, config: ScheduleConfigEntity) = PendingScheduleRefresh(
             scheduleId = profile.scheduleId, schoolId = profile.schoolId, adapterId = profile.adapterId,
+            bindingId = profile.bindingId,
             schoolName = profile.schoolName, before = state.courses.map(RefreshCourse::from),
             beforeOriginalTimes = comparisonClocks(state),
             after = courses.map(RefreshCourse::from), beforeTerm = RefreshTerm.from(state.config),
@@ -60,10 +65,23 @@ internal data class PendingScheduleRefresh(
     }
 }
 
+internal enum class RefreshReviewDecision { Keep, Replace, Clear }
+
+internal fun decideRefreshReview(
+    previous: PendingScheduleRefresh?, incoming: PendingScheduleRefresh, manual: Boolean, reviewed: Boolean
+): RefreshReviewDecision = when {
+    incoming.count == 0 || (!manual && reviewed) -> RefreshReviewDecision.Clear
+    previous?.remoteKey == incoming.remoteKey && previous.before == incoming.before &&
+        previous.beforeTerm == incoming.beforeTerm && previous.timingKey == incoming.timingKey -> RefreshReviewDecision.Keep
+    else -> RefreshReviewDecision.Replace
+}
+
 /** App-private, excluded from backup; pending choices survive process death without changing Room. */
 internal object AutoRefreshReviewStore {
     private val json = Json { ignoreUnknownKeys = true; encodeDefaults = true }
     private val state = MutableStateFlow<PendingScheduleRefresh?>(null)
+    private val deferred = MutableStateFlow<String?>(null)
+    val deferredReviewId: StateFlow<String?> = deferred
     private var initialized = false
     private fun file(context: Context) = AtomicFile(File(context.noBackupFilesDir, "pending-schedule-refresh.json"))
 
@@ -80,6 +98,14 @@ internal object AutoRefreshReviewStore {
     }
     fun load(context: Context) = observe(context).value
 
+    fun deferReview(id: String) {
+        if (state.value?.id == id) deferred.value = id
+    }
+
+    fun reopenReview() {
+        deferred.value = null
+    }
+
     @Synchronized fun save(context: Context, pending: PendingScheduleRefresh) {
         val target = file(context)
         val stream = target.startWrite()
@@ -95,15 +121,19 @@ internal object AutoRefreshReviewStore {
         file(context).delete()
         initialized = true
         state.value = null
+        deferred.value = null
     }
 
     fun wasReviewed(context: Context, pending: PendingScheduleRefresh): Boolean =
         context.getSharedPreferences("schedule_refresh_review", Context.MODE_PRIVATE)
-            .getString("last_remote", null) == pending.remoteKey
+            .getString("last_remote", null) == acknowledgementKey(pending)
 
     fun acknowledge(context: Context, pending: PendingScheduleRefresh) {
         check(context.getSharedPreferences("schedule_refresh_review", Context.MODE_PRIVATE).edit()
-            .putString("last_remote", pending.remoteKey).commit()) { "保存核对结果失败，请重试" }
+            .putString("last_remote", acknowledgementKey(pending)).commit()) { "保存核对结果失败，请重试" }
         clear(context)
     }
+
+    private fun acknowledgementKey(pending: PendingScheduleRefresh): String =
+        pending.bindingId?.let { "$it:${pending.remoteKey}" } ?: pending.remoteKey
 }

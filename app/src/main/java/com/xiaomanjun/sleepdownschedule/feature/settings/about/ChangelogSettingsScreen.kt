@@ -25,15 +25,11 @@ fun ChangelogSettingsScreen(
     state: AppState,
     backdrop: Backdrop?,
 ) {
-    val currentNotes = rememberBundledReleaseNotes(CurrentReleaseVersion)
-    val previousPatchNotes = rememberBundledReleaseNotes(PreviousPatchVersion)
-    val consolidatedNotes = rememberBundledReleaseNotes(ConsolidatedReleaseVersion)
-    val history = remember(currentNotes, previousPatchNotes, consolidatedNotes) {
-        listOf(
-            ReleaseHistoryEntry(CurrentReleaseVersion, currentNotes.flatMap { it.entries }.joinToString("\n")),
-            ReleaseHistoryEntry(PreviousPatchVersion, previousPatchNotes.flatMap { it.entries }.joinToString("\n")),
-            ReleaseHistoryEntry(ConsolidatedReleaseVersion, consolidatedNotes.flatMap { it.entries }.joinToString("\n")),
-        ) + ArchivedReleaseHistory.entries
+    val bundledNotes = BundledHistoryVersions.map { rememberBundledReleaseNotes(it) }
+    val history = remember(bundledNotes) {
+        BundledHistoryVersions.zip(bundledNotes) { version, sections ->
+            ReleaseHistoryEntry(version, sections.flatMap { it.entries }.joinToString("\n"))
+        } + ArchivedReleaseHistory.entries
     }
     val wide = LocalConfiguration.current.screenWidthDp >= 600
     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.TopCenter) {
@@ -55,7 +51,7 @@ fun ChangelogSettingsScreen(
     }
 }
 
-private const val PreviousPatchVersion = "2.0.1"
+private val BundledHistoryVersions = listOf(CurrentReleaseVersion, "2.0.2", "2.0.1", ConsolidatedReleaseVersion)
 private data class ReleaseHistoryEntry(val version: String, val body: String)
 
 private object ArchivedReleaseHistory {

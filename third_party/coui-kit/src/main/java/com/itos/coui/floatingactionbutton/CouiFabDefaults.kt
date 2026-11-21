@@ -1,5 +1,6 @@
 package com.itos.coui.floatingactionbutton
 
+import androidx.annotation.RequiresApi
 import android.graphics.BlendMode
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Color
@@ -24,6 +25,7 @@ object CouiFabDefaults {
         CouiFabColor.Recorder -> if (dark) CouiColor.Night.RED else CouiColor.Day.RED
     }
 
+    @RequiresApi(29)
     fun material(color: Color, dark: Boolean, extension: Int = 0): CouiFloatingMaterial =
         CouiFloatingMaterial(
             firstColor = color,
@@ -39,6 +41,7 @@ object CouiFabDefaults {
         )
 
     /** SleepDown 可选半透明强调表面；不改动 Demo 的默认有色 FAB。 */
+    @RequiresApi(29)
     fun translucentMaterial(color: Color, dark: Boolean, extension: Int = 0): CouiFloatingMaterial =
         material(color.copy(alpha = if (dark) .50f else .55f), dark, extension).copy(blurRadius = 25f)
 

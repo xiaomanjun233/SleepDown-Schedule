@@ -3,7 +3,6 @@ package com.xiaomanjun.sleepdownschedule.transition
 import android.app.Activity
 import android.graphics.Bitmap
 import android.graphics.Canvas as AndroidCanvas
-import android.graphics.Matrix
 import android.graphics.Outline
 import android.graphics.Paint
 import android.graphics.Path
@@ -47,6 +46,7 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.window.DialogWindowProvider
 import com.xiaomanjun.sleepdownschedule.BuildConfig
 import com.xiaomanjun.sleepdownschedule.core.ui.interaction.findActivity
+import com.xiaomanjun.sleepdownschedule.core.ui.interaction.localToScreenMatrix
 import com.xiaomanjun.sleepdownschedule.glass.requestGlassWindowRegion
 import com.xiaomanjun.sleepdownschedule.glass.withRecordingDensity
 import kotlinx.coroutines.CompletableDeferred
@@ -288,9 +288,8 @@ internal fun View.liveTransitionBoundsOnScreen(activity: Activity, coveredWindow
     if (coveredWindow) {
         if (!isTransitionReturnTarget(activity)) return null
     } else if (!isLiveTransitionSource(activity)) return null
-    val matrix = Matrix().also(::transformMatrixToGlobal)
     val bounds = RectF(0f, 0f, width.toFloat(), height.toFloat())
-    if (!matrix.mapRect(bounds)) return null
+    if (!localToScreenMatrix().mapRect(bounds)) return null
     val screen = AndroidRect().also(bounds::round)
     val visible = AndroidRect()
     if (screen.width() < 2 || screen.height() < 2) return null

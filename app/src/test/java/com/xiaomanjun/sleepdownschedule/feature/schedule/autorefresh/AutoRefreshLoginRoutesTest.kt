@@ -1,40 +1,23 @@
 package com.xiaomanjun.sleepdownschedule.feature.schedule.autorefresh
 
-import org.junit.Assert.assertFalse
-import org.junit.Assert.assertTrue
+import org.junit.Assert.*
 import org.junit.Test
 
 class AutoRefreshLoginRoutesTest {
-    @Test fun portalsDoNotCountAsTeachingSessions() {
-        mapOf(
-            "SWU" to "https://i.swu.edu.cn/",
-            "CQIE" to "https://i.cqie.edu.cn/",
-            "QHNU" to "http://one.qhnu.edu.cn/default/portal/index.jsp",
-            "NJUPT" to "https://i.njupt.edu.cn/",
-            "JUST" to "https://my.just.edu.cn/",
-            "NWPU" to "https://ecampus.nwpu.edu.cn/",
-            "GXMU" to "https://cas.gxmu.edu.cn/lyuapServer/login"
-        ).forEach { (school, url) -> assertFalse(school, AutoRefreshLoginRoutes.isSessionPage(school, url)) }
+    @Test fun transientAuthenticationUrlsAreNeverSaved() {
+        listOf("https://school.test/cas/login", "https://school.test/authserver/login",
+            "https://school.test/#/login", "https://school.test/home?ticket=ST-example",
+            "https://user@school.test/course", "file:///tmp/course.html").forEach {
+            assertFalse(it, AutoRefreshLoginRoutes.isSessionPage(it))
+        }
     }
 
-    @Test fun teachingPagesAndRecognizedWebVpnPathsCanProceedToApiValidation() {
-        mapOf(
-            "SWU" to SwuAuthRoutes.CoursePageUrl,
-            "CQIE" to "https://njw.cqie.edu.cn/",
-            "QHNU" to "https://yjsxt.qhnu.edu.cn/home",
-            "NJUPT" to "https://i.njupt.edu.cn/http/fixture/kbcx/xskbcx_cxXskbcxIndex.html",
-            "JUST" to "https://my.just.edu.cn/http/webvpnfixture/jwglxt/kbcx/xskbcx_cxXskbcxIndex.html",
-            "NWPU" to "https://jwxt.nwpu.edu.cn/student/home",
-            "GXMU" to "https://jwxt.gxmu.edu.cn/new/student/"
-        ).forEach { (school, url) -> assertTrue(school, AutoRefreshLoginRoutes.isSessionPage(school, url)) }
-    }
-
-    @Test fun loginPagesAndLookalikeHostsCannotEnableCredentialCapture() {
-        assertFalse(AutoRefreshLoginRoutes.isSessionPage("IMU", "https://jwxt.imu.edu.cn/login"))
-        assertFalse(AutoRefreshLoginRoutes.isSessionPage("QHNU", "https://yjsxt.qhnu.edu.cn/#/login"))
-        assertFalse(AutoRefreshLoginRoutes.isSessionPage("CQIE", "https://njw.cqie.edu.cn.example.com/"))
-        assertFalse(AutoRefreshLoginRoutes.isSessionPage("SWU", "https://jw.swu.edu.cn/jwglxt/xtgl/login_slogin.html"))
-        assertFalse(AutoRefreshLoginRoutes.isSessionPage("QHNU", "https://yjsxt.qhnu.edu.cn:8443/home"))
-        assertFalse(AutoRefreshLoginRoutes.isSessionPage("CQIE", "https://user@njw.cqie.edu.cn/"))
+    @Test fun executionStaysOnTheVerifiedOriginEvenAfterRedirects() {
+        val saved = "https://school.test/portal/#/course"
+        assertTrue(AutoRefreshLoginRoutes.isVerifiedOrigin(saved, "https://school.test/student/timetable"))
+        assertFalse(AutoRefreshLoginRoutes.isVerifiedOrigin(saved, "https://auth.school.test/cas/login"))
+        assertFalse(AutoRefreshLoginRoutes.isVerifiedOrigin(saved, "https://school.test.evil.test/student/timetable"))
+        assertFalse(AutoRefreshLoginRoutes.isVerifiedOrigin(saved, "https://school.test:8443/student/timetable"))
+        assertFalse(AutoRefreshLoginRoutes.isVerifiedOrigin(saved, "http://school.test/student/timetable"))
     }
 }

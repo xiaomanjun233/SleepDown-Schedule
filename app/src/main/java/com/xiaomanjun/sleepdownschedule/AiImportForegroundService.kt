@@ -13,6 +13,7 @@ import android.app.Service
 import android.content.Context
 import android.content.Intent
 import android.content.pm.ServiceInfo
+import android.os.Build
 import android.os.IBinder
 import android.os.Bundle
 import android.net.Uri
@@ -56,7 +57,8 @@ class AiImportForegroundService : Service() {
                         taskId,
                         intent.getStringExtra(EXTRA_STATUS).orEmpty()
                     ),
-                    ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q)
+                        ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC else 0
                 )
                 // The workflow itself runs on the process application scope (same as the Day
                 // Agent), so an OEM stopping this service cannot cancel the in-flight request.

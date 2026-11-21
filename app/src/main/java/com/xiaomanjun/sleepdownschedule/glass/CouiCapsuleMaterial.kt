@@ -2,6 +2,7 @@ package com.xiaomanjun.sleepdownschedule.glass
 
 import android.graphics.Paint
 import android.os.Build
+import androidx.annotation.RequiresApi
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
@@ -28,6 +29,7 @@ import com.kyant.backdrop.drawBackdrop
 /** 普通浮动按钮只消费调用方背景域；Dialog 内的操作沿用 Kit 原生填色，不追加采样。 */
 @Composable
 internal fun couiCapsuleMaterial(backdrop: Backdrop?, shape: Shape, dark: Boolean, accent: Color): Modifier {
+    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S || backdrop == null) return Modifier
     val material = remember(dark, accent) {
         if (accent != Color.Unspecified) CouiFabDefaults.translucentMaterial(accent, dark)
             else CouiTopAppBarButtonDefaults.systemMaterial(dark, capsule = true).copy(blurRadius = 7f)
@@ -36,7 +38,7 @@ internal fun couiCapsuleMaterial(backdrop: Backdrop?, shape: Shape, dark: Boolea
 }
 
 /** COUIButton 的 TYPE_CONTENT_TRANSPARENT_BUTTON，描边由按钮本身负责。 */
-@androidx.annotation.RequiresApi(31)
+@RequiresApi(31)
 @Composable
 internal fun couiTransparentButtonMaterial(backdrop: Backdrop, shape: Shape): Modifier {
     retainGlassSources(backdrop)
@@ -51,7 +53,7 @@ internal fun couiTransparentButtonMaterial(backdrop: Backdrop, shape: Shape): Mo
 }
 
 /** OTA MaterialLoadingView 的底卡采样配方，外框与底色由宿主绘制。 */
-@androidx.annotation.RequiresApi(31)
+@RequiresApi(31)
 @Composable
 internal fun couiUpdateCardMaterial(backdrop: Backdrop, shape: Shape): Modifier {
     retainGlassSources(backdrop)
@@ -86,6 +88,7 @@ internal fun couiUpdateCardOutline(shape: CouiShape): Modifier {
 
 @Composable
 internal fun couiSegmentMaterial(backdrop: Backdrop?, dark: Boolean): Modifier {
+    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S || backdrop == null) return Modifier
     val material = remember(dark) { CouiSegmentedControlDefaults.material(dark) }
     return couiControlMaterial(backdrop, CouiCapsuleShape, material)
 }
@@ -93,6 +96,7 @@ internal fun couiSegmentMaterial(backdrop: Backdrop?, dark: Boolean): Modifier {
 /** AllThemeButton samples behind the shell with a 30px mirror blur and no color filters. */
 @Composable
 internal fun couiIlluminatedCapsuleMaterial(backdrop: Backdrop, shape: Shape): Modifier {
+    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) return Modifier
     val material = remember {
         CouiFloatingMaterial(
             firstColor = Color.Transparent, firstBlendMode = BlendMode.SRC_OVER,
@@ -103,9 +107,9 @@ internal fun couiIlluminatedCapsuleMaterial(backdrop: Backdrop, shape: Shape): M
     return couiControlMaterial(backdrop, shape, material)
 }
 
+@RequiresApi(31)
 @Composable
-private fun couiControlMaterial(backdrop: Backdrop?, shape: Shape, material: CouiFloatingMaterial): Modifier {
-    if (android.os.Build.VERSION.SDK_INT < 31 || backdrop == null) return Modifier
+private fun couiControlMaterial(backdrop: Backdrop, shape: Shape, material: CouiFloatingMaterial): Modifier {
     val effect = remember(material) {
         couiControlMaterialEffectOrNull(material)?.asComposeRenderEffect()
     } ?: return Modifier

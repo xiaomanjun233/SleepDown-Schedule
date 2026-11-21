@@ -1,5 +1,6 @@
 package com.itos.coui.sheet
 
+import androidx.annotation.RequiresApi
 import android.graphics.drawable.ColorDrawable
 import android.graphics.BlendMode
 import android.os.Build
@@ -100,6 +101,7 @@ object CouiSheetDefaults {
     )
 
     /** Panel 内工具栏走 Drawable 材质，使用 CAPSULE_8 / CIRCLE_4 的窗口内轮廓。 */
+    @RequiresApi(29)
     fun toolbarMaterial(dark: Boolean, capsule: Boolean) = CouiFloatingMaterial(
         firstColor = Color(if (dark) 0xFF333333 else 0xFFF0F0F0),
         firstBlendMode = BlendMode.SRC_OVER,
