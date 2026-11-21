@@ -24,7 +24,6 @@ import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.offset
@@ -41,7 +40,6 @@ import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
@@ -75,7 +73,6 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
-import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
@@ -119,7 +116,6 @@ import com.xiaomanjun.sleepdownschedule.glass.ui.*
 import com.xiaomanjun.sleepdownschedule.glass.ui.appPanelForegroundColor
 import com.xiaomanjun.sleepdownschedule.transition.legacy.detailMotionBlurRadiusDp
 import kotlinx.coroutines.flow.map
-import kotlinx.coroutines.launch
 import org.json.JSONArray
 import org.json.JSONObject
 
@@ -136,16 +132,10 @@ fun EduSchoolPickerScreen(
     onSelect: (EduAdapter) -> Unit
 ) {
     val context = LocalContext.current
-    val localScope = rememberCoroutineScope()
-    var localVersion by remember { mutableIntStateOf(0) }
-    var localSelection by remember { mutableStateOf<EduAdapter?>(null) }
-    var editSource by remember { mutableStateOf<String?>(null) }
-    var localError by remember { mutableStateOf<String?>(null) }
-    var confirmLocalDelete by remember { mutableStateOf(false) }
     var repoSourceIndex by remember(warehouseGeneration) {
         mutableIntStateOf(if (ShiguangWarehouseUpdater.isGithubSource(context)) 1 else 0)
     }
-    val adapters = availableAdapters ?: remember(warehouseGeneration, localVersion) {
+    val adapters = availableAdapters ?: remember(warehouseGeneration) {
         runCatching { ShiguangWarehouse.loadVisibleAdapters(context) }
             .getOrDefault(emptyList())
     }
@@ -198,12 +188,6 @@ fun EduSchoolPickerScreen(
         },
         query = query,
         onQueryChange = { query = it },
-        onManageLocalAdapter = { adapter ->
-            localSelection = adapter
-            localError = null
-            editSource = null
-            confirmLocalDelete = false
-        },
         onSelect = { school ->
             val matches = adapters.filter { it.school.id == school.id }
             if (matches.size == 1) {
@@ -257,45 +241,6 @@ fun EduSchoolPickerScreen(
             }
         )
     }
-    localSelection?.let { selected ->
-        LiquidAlertDialog(
-            title = if (editSource != null) "编辑自用适配" else selected.school.name,
-            message = localError ?: if (confirmLocalDelete) "删除此本地适配？不会影响已经导入的课程。"
-                else if (editSource != null) "按拾光 Bridge 规范编辑，保存后打开教务页重新测试。"
-                else "本地 · 自用适配",
-            config = state.config,
-            onDismissRequest = { localSelection = null; editSource = null; confirmLocalDelete = false },
-            messageMaxHeight = 420.dp,
-            scrollableMessageContent = true,
-            messageContent = if (editSource != null) { {
-                DialogCapsuleField(value = editSource.orEmpty(), onValueChange = { editSource = it; localError = null },
-                    placeholder = "拾光适配脚本", config = state.config, minLines = 10,
-                    modifier = Modifier.fillMaxWidth().heightIn(max = 360.dp))
-            } } else null,
-            actions = if (confirmLocalDelete) listOf(
-                LiquidAlertAction("取消", LiquidAlertActionStyle.Cancel, onClick = { confirmLocalDelete = false }),
-                LiquidAlertAction("删除", LiquidAlertActionStyle.Primary, onClick = {
-                    LocalEduAdapterStore.delete(context, selected); localVersion++; localSelection = null; confirmLocalDelete = false
-                })) else if (editSource != null) listOf(
-                LiquidAlertAction("取消", LiquidAlertActionStyle.Cancel, onClick = { editSource = null }),
-                LiquidAlertAction("保存并测试", LiquidAlertActionStyle.Primary, dismissOnClick = false, onClick = {
-                    localScope.launch {
-                        runCatching { kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
-                            LocalEduAdapterStore.save(context, selected.school.name, selected.importUrl, editSource.orEmpty(),
-                                selected.adapterId, selected.maintainer)
-                        } }.onSuccess { updated -> localVersion++; localSelection = null; editSource = null; onSelect(updated) }
-                            .onFailure { localError = it.message ?: "保存失败" }
-                    }
-                })) else listOf(
-                LiquidAlertAction("取消", LiquidAlertActionStyle.Cancel, onClick = { localSelection = null }),
-                LiquidAlertAction("编辑", LiquidAlertActionStyle.Secondary, dismissOnClick = false, onClick = {
-                    localScope.launch { runCatching { kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
-                        LocalEduAdapterStore.source(context, selected)
-                    } }.onSuccess { editSource = it }.onFailure { localError = "脚本读取失败" } }
-                }),
-                LiquidAlertAction("删除", LiquidAlertActionStyle.Destructive, dismissOnClick = false, onClick = { confirmLocalDelete = true }))
-        )
-    }
 }
 
 @Composable
@@ -347,7 +292,6 @@ fun EduSchoolIndexedSelectScreen(
     repoSourceIndex: Int? = null,
     repoSourceEnabled: Boolean = true,
     onRepoSourceSelected: (Int) -> Unit = {},
-    onManageLocalAdapter: ((EduAdapter) -> Unit)? = null,
     onSelect: (EduSchool) -> Unit
 ) {
     val window = LocalActivity.current?.window
@@ -592,18 +536,10 @@ fun EduSchoolIndexedSelectScreen(
                                 else -> group.adapters.firstNotNullOfOrNull(adapterBadge)
                             }
                             SettingsGroup(backdrop, state.config, topSpacing = 0.dp, position = position) {
-                                val localAdapter = group.adapters.singleOrNull()?.takeIf { it.isSelfUseAdapter() }
                                 SettingsNavigationRow(
                                     title = group.school.name,
                                     subtitle = group.adapters.joinToString(" / ") { it.adapterName },
                                     badgeText = schoolBadge,
-                                    trailingAction = if (localAdapter != null && onManageLocalAdapter != null) {
-                                        {
-                                            IconButton(onClick = { onManageLocalAdapter(localAdapter) }) {
-                                                Icon(painterResource(R.drawable.ic_more_horizontal), contentDescription = "管理本地适配")
-                                            }
-                                        }
-                                    } else null,
                                     onClick = { onSelect(group.school) }
                                 )
                                 if (index < section.schools.lastIndex) SettingsDivider()

@@ -35,7 +35,7 @@ Office/ODS 解包只读取与正文有关的 XML，并限制 ZIP 条目数、单
 
 生成脚本的维护者使用「SleepDown课程表AI」。本机适配的 `SLEEPDOWN_AI_<uuid>` ID 随上传备注提交。将审核后的脚本发布到共用 `edu-ai-dock` 时，沿用该 ID 作为 `adapter_id`。同步后，同 ID 的仓库版本接管本机条目，并用于已有入口；本机副本保留供仓库脚本取不到时使用。
 
-自用适配原子写入私有目录的单校仓库 ZIP：`index/root_index.yaml`、`resources/LOCAL_…/adapters.yaml`、原样 `adapter.js` 和 `school_index.pb`，元数据及 v2 索引遵循拾光官方 schema／proto，索引复用现有仓库解析器。旧 JSON 适配继续读取，显式更新写入新包，不清除旧记录或改动 Room。“我的适配 · 本地”独立展示，支持打开测试、编辑与删除，不自动发布上游。登录入口保留正常跳转参数，移除凭据参数、会话标识与 fragment。
+自用适配原子写入私有目录的单校仓库 ZIP，包含 `index/root_index.yaml`、`resources/LOCAL_…/adapters.yaml`、原样 `adapter.js` 和 `school_index.pb`。元数据及 v2 索引遵循拾光官方 schema／proto，索引复用现有仓库解析器。旧 JSON 适配继续读取，显式更新写入新包，不清除旧记录或改动 Room。点击“我的适配 · 本地”中的条目直接进入教务页面。本机条目保留至仓库发布同 ID 的适配。登录入口保留正常跳转参数，移除凭据参数、会话标识与 fragment。
 
 识屏仍保留为用户选择的路线；选择“只发送截图”不开放网页 DOM／接口／脚本工具。文本抓取按完整内容块去重，保留空单元格及合并行列，不去重真实课程行。最终导入始终需要用户预览确认。
 
