@@ -385,14 +385,12 @@ private fun changedField(kind: ReviewField, before: String?, after: String?): Re
     if (before == after) null else RefreshField(kind, before ?: "未设置", after ?: "未设置")
 
 private fun RefreshCourse.details(): Map<ReviewField, String?> {
-    val clock = runCatching { parseCoursePeriodTimes(periodTimes ?: originalTimes) }.getOrDefault(emptyList())
+    val explicitTime = if (!start.isNullOrBlank() && !end.isNullOrBlank()) "$start–$end" else null
+    val periodClock = periodTimes?.takeUnless(String::isBlank) ?: originalTimes.takeIf { explicitTime == null }
+    val clock = runCatching { parseCoursePeriodTimes(periodClock) }.getOrDefault(emptyList())
     val day = "周${if (weekday in 1..7) scheduleWeekdayLabel(weekday) else weekday}"
     val arrangement = if (clock.isEmpty()) "$day · ${compactPeriodsLabel(periods)}" else day
-    val time = when {
-        clock.isNotEmpty() -> reviewTimeLabel(periods, clock)
-        !start.isNullOrBlank() && !end.isNullOrBlank() -> "$start–$end"
-        else -> null
-    }
+    val time = if (clock.isNotEmpty()) reviewTimeLabel(periods, clock) else explicitTime
     val parityLabel = when (parity) {
         "ODD" -> "（单周）"
         "EVEN" -> "（双周）"
