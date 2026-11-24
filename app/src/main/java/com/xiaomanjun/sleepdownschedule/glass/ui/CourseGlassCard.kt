@@ -92,6 +92,13 @@ internal fun courseSimpleBlurTintAlpha(cardAlpha: Float, quality: Float, hasWall
 internal fun courseLiquidGlassEnabled(config: ScheduleConfigEntity, dark: Boolean): Boolean =
     config.courseCardGlassEnabled && (config.hasAnyWallpaper() || !dark)
 
+/** Wallpaper-free liquid cards keep the same bottom-lit tint as the wallpaper material. */
+internal fun courseGlassTintUsesGradient(
+    useGlass: Boolean,
+    hasWallpaper: Boolean,
+    outlineLightEnabled: Boolean
+): Boolean = useGlass && (!hasWallpaper || outlineLightEnabled)
+
 /**
  * 壁纸降亮度时课程卡片的跟随衰减系数。卡片也随壁纸变暗一点，但幅度小于壁纸；
  * 开启质感轮廓光时降得比关闭时更多（轮廓光更依赖亮度氛围）。
@@ -403,11 +410,12 @@ fun CourseGlassCard(
     )
     val configuredAlpha = config.cardAlpha
     val configuredBrightness = config.wallpaperBrightness
+    val gradientTint = courseGlassTintUsesGradient(useGlass, hasWallpaper, outlineLightEnabled)
     // Like Nexio's CourseCard, retain the actual surface callback, not only a wrapper.
     // Replacing a callback stored in snapshot state invalidates the sampled draw even if
     // its pixels are identical, which otherwise repeats work on unrelated recompositions.
     val liquidSurfaceDraw: DrawScope.() -> Unit = remember(previewState, configuredAlpha,
-        configuredBrightness, outlineLightEnabled, quality, hasWallpaper, baseColor,
+        configuredBrightness, outlineLightEnabled, gradientTint, quality, hasWallpaper, baseColor,
         expandedOutlineLight, lightGlass) {
         var cachedTint = Color.Unspecified
         var cachedHeight = Float.NaN
@@ -422,7 +430,7 @@ fun CourseGlassCard(
         val tintAlpha = courseGlassTintAlpha(tintStrength, quality, hasWallpaper) *
             brightnessAttenuation
         val tint = baseColor.copy(alpha = tintAlpha)
-        if (outlineLightEnabled) {
+        if (gradientTint) {
             if (cachedTint != tint || cachedHeight != size.height) {
                 cachedTint = tint
                 cachedHeight = size.height

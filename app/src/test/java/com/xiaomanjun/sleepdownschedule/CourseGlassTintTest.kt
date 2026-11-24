@@ -4,6 +4,7 @@ import com.xiaomanjun.sleepdownschedule.glass.ui.courseGlassTintAlpha
 import com.xiaomanjun.sleepdownschedule.glass.ui.courseSimpleBlurTintAlpha
 import com.xiaomanjun.sleepdownschedule.glass.ui.courseGlassSurfaceColor
 import com.xiaomanjun.sleepdownschedule.glass.ui.courseLiquidGlassEnabled
+import com.xiaomanjun.sleepdownschedule.glass.ui.courseGlassTintUsesGradient
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.compositeOver
 
@@ -21,6 +22,12 @@ class CourseGlassTintTest {
             config.copy(wallpaperUri = "content://test/wallpaper"),
             dark = true
         ))
+    }
+
+    @Test fun wallpaperFreeGlassUsesTheBottomLitTintGradient() {
+        assertTrue(courseGlassTintUsesGradient(useGlass = true, hasWallpaper = false, outlineLightEnabled = false))
+        assertTrue(courseGlassTintUsesGradient(useGlass = true, hasWallpaper = true, outlineLightEnabled = true))
+        assertTrue(!courseGlassTintUsesGradient(useGlass = false, hasWallpaper = false, outlineLightEnabled = false))
     }
 
     @Test fun flattenedSurfacePreservesTintAndNeutralFillsAtAlphaBoundaries() {
