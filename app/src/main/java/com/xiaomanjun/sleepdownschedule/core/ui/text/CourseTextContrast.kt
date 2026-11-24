@@ -90,9 +90,18 @@ internal fun courseTextColorForPage(seed: Color, hasWallpaper: Boolean, lightTex
     val saturation = if (value > 0f) chroma / value else 0f
     val hue = courseHue(seed)
     if (!hasWallpaper) return Color.hsv(hue, saturation * 0.46f, 1f)
-    val vivid = Color.hsv(hue, (saturation * 2f).coerceAtMost(1f),
-        if (lightText) value else 0.38f)
-    return if (!lightText) vivid else Color(
+    val vivid = Color.hsv(hue, (saturation * 2f).coerceAtMost(1f), value)
+    if (!lightText) {
+        // Bright wallpapers still need dark ink, but the old fixed 0.38 value made every
+        // course look muddy. Keep the most vivid same-hue color that remains readable on a
+        // white card instead of flattening all titles to one arbitrary darkness.
+        return readableAccentColor(
+            Color.hsv(hue, (saturation * 2f).coerceAtMost(1f), 0.72f),
+            background = Color.White,
+            minimumContrast = 4.5f
+        )
+    }
+    return Color(
         vivid.red + (1f - vivid.red) * 0.4f,
         vivid.green + (1f - vivid.green) * 0.4f,
         vivid.blue + (1f - vivid.blue) * 0.4f

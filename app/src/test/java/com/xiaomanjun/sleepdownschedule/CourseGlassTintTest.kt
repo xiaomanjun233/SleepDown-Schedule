@@ -3,6 +3,7 @@ package com.xiaomanjun.sleepdownschedule
 import com.xiaomanjun.sleepdownschedule.glass.ui.courseGlassTintAlpha
 import com.xiaomanjun.sleepdownschedule.glass.ui.courseSimpleBlurTintAlpha
 import com.xiaomanjun.sleepdownschedule.glass.ui.courseGlassSurfaceColor
+import com.xiaomanjun.sleepdownschedule.glass.ui.courseLiquidGlassEnabled
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.compositeOver
 
@@ -11,6 +12,17 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class CourseGlassTintTest {
+    @Test fun lightWallpaperFreeCoursesUseGlassWhileDarkFallbackStaysFlat() {
+        val config = defaultConfig()
+        assertTrue(courseLiquidGlassEnabled(config, dark = false))
+        assertTrue(!courseLiquidGlassEnabled(config, dark = true))
+        assertTrue(!courseLiquidGlassEnabled(config.copy(courseCardGlassEnabled = false), dark = false))
+        assertTrue(courseLiquidGlassEnabled(
+            config.copy(wallpaperUri = "content://test/wallpaper"),
+            dark = true
+        ))
+    }
+
     @Test fun flattenedSurfacePreservesTintAndNeutralFillsAtAlphaBoundaries() {
         for (light in listOf(false, true)) for (alpha in listOf(0f, 0.5f, 1f)) {
             val tint = Color(0xFF4080C0).copy(alpha = alpha)
@@ -19,10 +31,11 @@ class CourseGlassTintTest {
             val black = Color.Black.copy(alpha = if (light) 0.004f else 0.014f)
             val expected = black.compositeOver(white.compositeOver(tint.compositeOver(background)))
             val actual = courseGlassSurfaceColor(tint, light).compositeOver(background)
-            assertEquals(expected.red, actual.red, 0.0001f)
-            assertEquals(expected.green, actual.green, 0.0001f)
-            assertEquals(expected.blue, actual.blue, 0.0001f)
-            assertEquals(expected.alpha, actual.alpha, 0.0001f)
+            // Compose composites in premultiplied 8-bit color; allow one channel step.
+            assertEquals(expected.red, actual.red, 0.005f)
+            assertEquals(expected.green, actual.green, 0.005f)
+            assertEquals(expected.blue, actual.blue, 0.005f)
+            assertEquals(expected.alpha, actual.alpha, 0.005f)
         }
     }
 

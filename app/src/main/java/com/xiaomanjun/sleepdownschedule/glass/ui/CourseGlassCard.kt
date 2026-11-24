@@ -88,6 +88,10 @@ internal fun courseSimpleBlurTintAlpha(cardAlpha: Float, quality: Float, hasWall
         .coerceIn(0f, 0.18f)
 }
 
+/** Liquid course cards remain available on the light, wallpaper-free page. */
+internal fun courseLiquidGlassEnabled(config: ScheduleConfigEntity, dark: Boolean): Boolean =
+    config.courseCardGlassEnabled && (config.hasAnyWallpaper() || !dark)
+
 /**
  * 壁纸降亮度时课程卡片的跟随衰减系数。卡片也随壁纸变暗一点，但幅度小于壁纸；
  * 开启质感轮廓光时降得比关闭时更多（轮廓光更依赖亮度氛围）。
@@ -288,8 +292,7 @@ fun CourseGlassCard(
         return
     }
     val glassBackdrop = if (
-        config.courseCardGlassEnabled &&
-        hasWallpaper &&
+        courseLiquidGlassEnabled(config, dark) &&
         Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
     ) localBackdrop else null
     val simpleBlurBackdrop = if (
@@ -341,9 +344,9 @@ fun CourseGlassCard(
     }
     val liveCardAlpha = (previewState?.cardAlpha ?: config.cardAlpha).coerceIn(0f, 1f)
     val textSurfaceAlpha = when {
-        !hasWallpaper -> courseTintAlpha(liveCardAlpha.coerceAtLeast(FlatCourseCardMinimumAlpha))
         useGlass -> courseGlassTintAlpha(if (outlineLightEnabled) 0.75f else liveCardAlpha, quality, hasWallpaper) *
             courseCardBrightnessAttenuation(config.wallpaperBrightness, outlineLightEnabled)
+        !hasWallpaper -> courseTintAlpha(liveCardAlpha.coerceAtLeast(FlatCourseCardMinimumAlpha))
         simpleBlurBackdrop != null -> courseSimpleBlurTintAlpha(liveCardAlpha, quality, hasWallpaper)
         !config.courseCardGlassEnabled && !config.courseCardGaussianBlurEnabled ->
             liveCardAlpha.coerceAtLeast(if (hasWallpaper) 0.35f else 0.92f)

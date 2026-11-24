@@ -368,6 +368,7 @@ import com.xiaomanjun.sleepdownschedule.glass.ui.buildCourseCardColorAssignments
 import com.xiaomanjun.sleepdownschedule.glass.ui.courseCardColorKey
 import com.xiaomanjun.sleepdownschedule.glass.ui.rememberFallbackAdaptiveGlassState
 import com.xiaomanjun.sleepdownschedule.glass.ui.LocalHomeWallpaperLightStyle
+import com.xiaomanjun.sleepdownschedule.glass.ui.courseLiquidGlassEnabled
 import com.xiaomanjun.sleepdownschedule.glass.ui.rememberScreenScaledBackdrop
 import com.xiaomanjun.sleepdownschedule.glass.ui.resolvedCourseCardPalette
 import com.xiaomanjun.sleepdownschedule.isAfterScheduleTerm
@@ -1962,7 +1963,9 @@ fun CourseScheduleAppUi(
     val courseBackdropViewport = remember { com.kyant.backdrop.BackdropViewport() }
     val courseMaterialsEnabled = AppMaterialPreferences.policy.courseSamples(
         visualState.config.courseCardGlassEnabled, visualState.config.courseCardGaussianBlurEnabled,
-        visualState.config.hasAnyWallpaper())
+        visualState.config.hasAnyWallpaper()) ||
+        (AppMaterialPreferences.policy.denseMaterials &&
+            courseLiquidGlassEnabled(visualState.config, appDarkTheme))
     val kitCourseMaterials = com.xiaomanjun.sleepdownschedule.core.ui.material.LocalVisualEffects.current.usesCouiControls &&
         AppMaterialPreferences.policy.denseMaterials
     val wallpaperBrightness = rememberUpdatedState(visualState.config.wallpaperBrightness)
