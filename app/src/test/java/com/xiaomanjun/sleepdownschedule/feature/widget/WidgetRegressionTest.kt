@@ -210,22 +210,4 @@ class WidgetRegressionTest {
             }
         }
     }
-
-    @Test fun pinPreviewKeepsTheInstalledHostAspectInsteadOfForcingASquare() {
-        val size = WidgetRenderSize(168, 120)
-        val appearance = WidgetAppearanceEntity.defaults(WidgetAppearanceVariant.COURSES_SQUARE)
-        val source = MiuixTodayWidgetRenderer.buildViews(
-            context, AppState(), TodayWidgetVariant.SQUARE, appearance, size
-        )
-
-        val preview = widgetPinPreview(
-            context, WidgetAppearanceVariant.COURSES_SQUARE, source, size
-        ).apply(context, FrameLayout(context))
-        preview.measure(
-            View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED),
-            View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED)
-        )
-
-        assertEquals(1.4f, preview.measuredWidth.toFloat() / preview.measuredHeight, 0.02f)
-    }
 }

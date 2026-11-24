@@ -19,13 +19,8 @@ internal fun staticWidgetPreview(context: Context, type: WidgetAppearanceVariant
 })
 
 /** Pin dialogs have no installed widget size; give the host one bounded, intrinsically sized image. */
-internal fun widgetPinPreview(
-    context: Context,
-    type: WidgetAppearanceVariant,
-    content: RemoteViews?,
-    logicalSize: WidgetRenderSize? = null
-): RemoteViews {
-    val logical = logicalSize ?: canonicalWidgetPreviewSize(type)
+internal fun widgetPinPreview(context: Context, type: WidgetAppearanceVariant, content: RemoteViews?): RemoteViews {
+    val logical = canonicalWidgetPreviewSize(type)
     val density = context.resources.displayMetrics.density
     val width = (logical.widthDp * density).roundToInt().coerceAtLeast(1)
     val height = (logical.heightDp * density).roundToInt().coerceAtLeast(1)

@@ -179,16 +179,6 @@ fun WidgetCustomizationScreen(
         return ComponentName(context, provider)
     }
     fun installedIds(type: WidgetAppearanceVariant): IntArray = manager.getAppWidgetIds(providerComponent(type))
-    fun installedPreviewSize(type: WidgetAppearanceVariant): WidgetRenderSize? {
-        val id = installedIds(type).firstOrNull() ?: return null
-        val options = manager.getAppWidgetOptions(id) ?: return null
-        val hasHostBounds = options.containsKey(AppWidgetManager.OPTION_APPWIDGET_MIN_WIDTH) ||
-            options.containsKey(AppWidgetManager.OPTION_APPWIDGET_MAX_WIDTH) ||
-            options.containsKey(AppWidgetManager.OPTION_APPWIDGET_SIZES)
-        val size = widgetRenderSizes(manager, id, type).singleOrNull()
-            ?: widgetRenderSize(manager, id, type)
-        return size.takeIf { hasHostBounds }
-    }
     val widgetTypes = ActiveWidgetAppearanceVariants
     val pagerState = rememberPagerState { widgetTypes.size }
     val listState = rememberLazyListState()
@@ -196,9 +186,6 @@ fun WidgetCustomizationScreen(
         derivedStateOf { pagerState.settledPage.coerceIn(widgetTypes.indices) }
     }
     val selectedType = widgetTypes[selectedPage]
-    val selectedInstalledPreviewSize = remember(selectedType, appearances) {
-        installedPreviewSize(selectedType)
-    }
     val currentPreviewBounds = previewBounds[selectedType] ?: Rect.Zero
     val lightReady = lightRenderer != null && lightSnapshot?.first == selectedType.key &&
         !pagerState.isScrollInProgress && editRequest == null && listState.firstVisibleItemIndex == 0 &&
@@ -352,19 +339,13 @@ fun WidgetCustomizationScreen(
                                 verticalArrangement = Arrangement.Center
                             ) {
                                 val placeholderSize = canonicalWidgetPreviewSize(type)
-                                val livePreviewSize = remember(type, appearances) {
-                                    installedPreviewSize(type)
-                                }
-                                val previewSize = livePreviewSize ?: placeholderSize
-                                val previewAspect = previewSize.widthDp.toFloat() /
-                                    previewSize.heightDp.coerceAtLeast(1)
                                 val previewSlot = if (adaptiveMetrics.isLargeScreen) {
                                     if (type == WidgetAppearanceVariant.WEEK_SCHEDULE) {
                                         Modifier.requiredSize(280.dp, 210.dp)
                                     } else {
                                         Modifier.requiredSize(
-                                            previewSize.widthDp.dp,
-                                            previewSize.heightDp.dp
+                                            placeholderSize.widthDp.dp,
+                                            placeholderSize.heightDp.dp
                                         )
                                     }
                                 } else {
@@ -376,14 +357,13 @@ fun WidgetCustomizationScreen(
                                                 else -> 1f
                                             }
                                         )
-                                        .aspectRatio(previewAspect)
+                                        .aspectRatio(type.canonicalAspect)
                                 }
                                 Box(previewSlot) {
                                     WidgetRemoteViewsPreview(
                                         type,
                                         appearance,
                                         state,
-                                        renderSizeOverride = previewSize.takeIf { livePreviewSize != null },
                                         modifier = Modifier
                                             .fillMaxSize()
                                             .drawWithContent {
@@ -402,14 +382,6 @@ fun WidgetCustomizationScreen(
                                 }
                                 Spacer(Modifier.height(8.dp))
                                 Text(type.displayName, style = MaterialTheme.typography.labelLarge)
-                                if (livePreviewSize != null &&
-                                    abs(previewAspect - type.canonicalAspect) > 0.03f) {
-                                    Text(
-                                        "按当前桌面尺寸预览",
-                                        style = MaterialTheme.typography.labelSmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                                    )
-                                }
                             }
                         }
                     }
@@ -432,12 +404,7 @@ fun WidgetCustomizationScreen(
                                 showManualWidgetHelp = true
                             } else {
                                 try {
-                                    val preview = widgetPinPreview(
-                                        context,
-                                        selectedType,
-                                        widgetPreviews[selectedType],
-                                        selectedInstalledPreviewSize
-                                    )
+                                    val preview = widgetPinPreview(context, selectedType, widgetPreviews[selectedType])
                                     val extras = Bundle().apply { putParcelable(AppWidgetManager.EXTRA_APPWIDGET_PREVIEW, preview) }
                                     requestWidgetPin(context, providerComponent(selectedType), extras)
                                 } catch (error: Exception) {
@@ -678,7 +645,6 @@ private fun WidgetRemoteViewsPreview(
     type: WidgetAppearanceVariant,
     appearance: WidgetAppearanceEntity,
     state: AppState,
-    renderSizeOverride: WidgetRenderSize? = null,
     modifier: Modifier = Modifier,
     fillFraction: Float = if (type == WidgetAppearanceVariant.COURSES_SQUARE) 0.50f else 1f,
     preserveCanonicalSize: Boolean = false,
@@ -691,9 +657,7 @@ private fun WidgetRemoteViewsPreview(
     onLightBitmap: (Bitmap) -> Unit = {}
 ) {
     val context = LocalContext.current
-    val renderSize = remember(type, renderSizeOverride) {
-        renderSizeOverride ?: canonicalWidgetPreviewSize(type)
-    }
+    val renderSize = remember(type) { canonicalWidgetPreviewSize(type) }
     val systemUiMode = androidx.compose.ui.platform.LocalConfiguration.current.uiMode
     var remoteViews by remember(type) { mutableStateOf<RemoteViews?>(null) }
     val latestOnReady = rememberUpdatedState(onReady)
@@ -701,7 +665,7 @@ private fun WidgetRemoteViewsPreview(
     val latestCaptureForLight = rememberUpdatedState(captureForLight)
     val latestOnLightBitmap = rememberUpdatedState(onLightBitmap)
     val lightCapture = remember(type) { WidgetLightCaptureState() }
-    LaunchedEffect(type, appearance, state, renderSize, transparentBackground, systemUiMode) {
+    LaunchedEffect(type, appearance, state, transparentBackground, systemUiMode) {
         // Slider/crop gestures can emit dozens of appearance snapshots per second. Keep the
         // last valid preview on screen and collapse that burst into one expensive bitmap pass.
         if (remoteViews != null) delay(90)
