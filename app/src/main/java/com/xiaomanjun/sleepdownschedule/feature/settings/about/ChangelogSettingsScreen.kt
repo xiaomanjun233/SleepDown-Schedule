@@ -51,7 +51,7 @@ fun ChangelogSettingsScreen(
     }
 }
 
-private val BundledHistoryVersions = listOf(CurrentReleaseVersion, "2.0.2", "2.0.1", ConsolidatedReleaseVersion)
+private val BundledHistoryVersions = listOf(CurrentReleaseVersion, "2.0.3", "2.0.2", "2.0.1", ConsolidatedReleaseVersion)
 private data class ReleaseHistoryEntry(val version: String, val body: String)
 
 private object ArchivedReleaseHistory {

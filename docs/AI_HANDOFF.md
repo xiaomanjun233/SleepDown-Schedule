@@ -1,5 +1,249 @@
 # 当前工作交接
 
+## 2026-11-24 后端反馈处理、短口令日期兼容与外部 PR 审阅
+
+- 按用户指定将未处理列表第 1、2、3、5、6、10 条公开并标记为“暂不采纳”，填写对应回复；教务适配建议使用 AI 导入，无法进入教务页时提示部分学校可能要求内网，vivo 原子岛说明上架、厂商合作及无通用适配接口的限制。其余反馈状态未改。
+- 当前分支 `codex/feedback-ui-fixes` 基于最新 `origin/main`。短口令失败根因是已有课表可保存 `2026.08.30`，而分享自检经过的拾光配置校验只接受 ISO 日期；`ShiguangImportSession` 现复用 `parseScheduleDate` 并规范化存储，`CloudShortCodeTest` 新增该反馈的生成及再导入回归。6 项短口令测试与 `compileGithubReleaseKotlin` 均通过；对应反馈仍保持处理中。
+- 已审阅外部贡献者 PR [#113](https://github.com/xiaomanjun233/SleepDown-Schedule/pull/113)（自定义上课时间不再被原始节次快照遮住）。独立工作树实际运行 `AutoRefreshReviewUiTest` 7 项全部通过，无失败或跳过；已对 head `e1eb0f796469048615ad83cf45edf29fe8e7c370` 提交 APPROVED 审阅，未合并。临时审阅工作树已清理。
+- 继续核查 2×2 小组件尺寸和部分壁纸偏暗反馈。2×2 只代表桌面网格，实际比例由 Launcher 决定；用户确认这不是缺陷，不再调整预览或组件实现，已在反馈中说明原因并标记“暂不采纳”。
+- 亮壁纸下的彩色课程字不再固定压到 `0.38` 明度，改为保持色相并取白底达到 4.5:1 的最亮同色；浅色无壁纸恢复凝光课程卡材质，原有黑白文字反色不变。相关 `CourseTextContrastTest` 4 项、`CourseGlassTintTest` 5 项全部通过，`compileGithubReleaseKotlin` 通过。
+- 本轮源码提交为 `d4c4f2fb`、`d658f191`、`4163340c`；小组件预览实验已由 `8bf46c41` 完整回退，均未推送。`assembleGithubRelease` 通过，生成 2.0.3 / 39 签名 APK `app/build/outputs/apk/github/release/app-github-release.apk`（10,039,206 字节，SHA-256 `4648f927…`，V2 签名）。13:22:51 经 SDK ADB 37.0.1 / 5038 覆盖安装到 PLJ110（Android 17 / API 37，`3B15AE023YL00000`），设备 `base.apk` 哈希一致且首次安装时间保留；未主动启动。壁纸观感与无壁纸凝光仍待实机界面验收。
+- 浅色无壁纸的凝光卡片原先只绘制平面课程色，现改用与有壁纸凝光相同的顶部轻、底部课程色增强竖向渐染；`CourseGlassTintTest` 6 项通过，提交 `1442d4ce`。随后 `assembleGithubRelease` 通过，新 APK 为 10,022,822 字节、SHA-256 `cd8d0956…`。构建期间 PLJ110 于 13:31 断开 USB/ADB，5038、5037、USB 与 mDNS 均无可用设备，新包尚未安装。
+- 包体审计确认 `classes.dex` 5.10 MB、`res` 3.52 MB、assets 0.95 MB，native 仅 36 KB。首轮把 25 张二维码／启动图标／小组件预览 PNG 转无损 WebP，并将 86 帧欢迎动画同尺寸重编码为质量 80；`assembleGithubRelease` 通过，APK 降至 9,476,247 字节（-546,575，5.5%），SHA-256 `dda0ea41…`，提交 `0852f778`。设备仍未重新连接，未安装。
+- Nexio 用户包 `4,008,377` 字节是普通 arm64-only Release APK（V2 签名，非 App Bundle）：R8、资源压缩与 `useLegacyPackaging` 均已启用；其 DEX 压缩后 3.32 MB、资源仅 0.14 MB、assets 0.31 MB。SleepDown 与它的主要差距是更多功能和更大图片资产，而不是打包器或 ABI 拆分：ABI 过滤最多节省约 26 KB，不能解释约 6 MB 的差。
+- 欢迎动画显示高度上限约 80dp，已从 320×267 降到 256×214，仍保留 86 帧和同一时长，文件由 1,607,110 降至 1,093,342 字节；提交 `88849fc4`。最终 `assembleGithubRelease` 通过，APK 为 8,962,479 字节（8.55 MiB），较本轮起点 10,022,822 字节减少 1,060,343 字节（10.6%），最新重打 SHA-256 `6b166c23…`。22:21 经 5038 对 PLJ110 执行覆盖安装并返回 Success；设备在安装后立即断开，未能回读设备 APK 哈希或版本，动画清晰度仍待实机验收。
+- 排查浅色无壁纸课程卡材质异常：此前 `d658f191` 与 `1442d4ce` 误将液态玻璃分支（`courseLiquidGlassEnabled`、`courseGlassTintUsesGradient`、`ScheduleAppUi` 的 `courseMaterialsEnabled` 旁路）当作凝光卡片修改，导致凝光分支（`CouiCourseCard`）仍维持 `blurRadiusScale = 0f`、不透明 `tintOnBacking` 与近乎平铺的 `topTintFloor = 0.72f`，且液态玻璃无壁纸场景与 `PersonalizePanel` 锁定及 `MaterialPolicy` 冲突。同时修复 `CourseMaterialSampling.hasStaticBitmap` 在 `pixels.value == null` 时误判为 `true`、`CourseGlassCard` 在无壁纸时仍向下传递未过滤 `preparedWallpaper` 的问题。现已回退液态玻璃分支误改（保留 `CourseTextContrast` 亮壁纸字色改进），在 `CourseGlassCard` 原生凝光路径恢复 `blurRadiusScale = 1f`、半透明叠加渐变（`topTintFloor = 0.20f`、`alpha = 0.20 + 0.30 * strength`）与 `CouiMaterialSurface` 背景采样，并保留既有 7:1 彩色文字与深色页面文字反色规则。`CourseGlassTintTest` 6 项、`CourseTextContrastTest` 4 项、`MaterialPolicyTest` 3 项及单 worker `compileGithubReleaseKotlin` 均通过；随后 `assembleGithubRelease` 通过，生成 2.0.3 / 39 签名 APK `app/build/outputs/apk/github/release/app-github-release.apk`（8,978,863 字节，SHA-256 `D2E5DD66…`）。23:34:47 经 Android SDK ADB 37.0.1（`5038` USB 通道，服务端 `D:\Android studio\AndroidSDK\platform-tools\adb.exe`）覆盖安装至 `PLJ110`（`3B15AE023YL00000`，Android 17 / API 37）并返回 Success；设备 `base.apk` SHA-256 回读一致，`firstInstallTime` 保留，未主动启动，真机浅色无壁纸凝光与渐变视觉待实机验收；尚未提交 Git。
+- 引入 CampusMeow（`D:\CampusMeow-Dev\CampusMeow`）周课表重叠课程堆叠展示与动画展开预览，并取消原有冲突课程提示系统、允许拖拽直接重叠，同时修复 AI 快捷轮盘（`AiRuntimePicker`）自添加模型切换问题：
+  - 重叠堆叠与预览动画：新增 [ScheduleOverlapMotion.kt](app/src/main/java/com/xiaomanjun/sleepdownschedule/feature/home/overlay/ScheduleOverlapMotion.kt) 与 [ScheduleOverlapPreview.kt](app/src/main/java/com/xiaomanjun/sleepdownschedule/feature/home/overlay/ScheduleOverlapPreview.kt)，在 [WeekCourseLayout.kt](app/src/main/java/com/xiaomanjun/sleepdownschedule/feature/home/week/WeekCourseLayout.kt)、[WeekCourseBlock.kt](app/src/main/java/com/xiaomanjun/sleepdownschedule/feature/home/week/WeekCourseBlock.kt) 与 [ScheduleAppUi.kt](app/src/main/java/com/xiaomanjun/sleepdownschedule/app/ui/ScheduleAppUi.kt) 中按直交重叠完整堆叠卡片、顶缘未遮挡卡显示右上角 `N门` 角标，点击触发首页 1.08× 景深缩放模糊并按错峰 + 2D 抛物线弧线 + 紧凑/展开双内容渐入飞出到带节次时间轴与引导线的可横向滚动卡片台，支持中途打断折返及点击展开卡跳入课程编辑。
+  - 取消冲突课程系统并放开拖拽重叠：移除 [WeekCourseBlock.kt](app/src/main/java/com/xiaomanjun/sleepdownschedule/feature/home/week/WeekCourseBlock.kt) 底部「冲突」快捷移位胶囊与 [ScheduleAppUi.kt](app/src/main/java/com/xiaomanjun/sleepdownschedule/app/ui/ScheduleAppUi.kt)、[CourseManagementUi.kt](app/src/main/java/com/xiaomanjun/sleepdownschedule/feature/course/management/CourseManagementUi.kt) 中的 `CourseConflictRetentionDialog` / `ConfirmCourseConflicts` 弹窗拦截与冲突聚焦跳转；更新 [WeekEditOverlayController.kt](app/src/main/java/com/xiaomanjun/sleepdownschedule/feature/home/week/WeekEditOverlayController.kt)（`canCommitWeekCourseEditMove` / `canCommitWeekCourseEditResize`）与 [WeekEditOverlayHost.kt](app/src/main/java/com/xiaomanjun/sleepdownschedule/feature/home/week/WeekEditOverlayHost.kt)，周视图编辑态移动与拉长缩展均可直接落入已有课程所在节次形成重叠。
+  - 修复 AI 快捷轮盘切换自添加模型：修复 [AiProviderModelCatalog.kt](app/src/main/java/com/xiaomanjun/sleepdownschedule/feature/importing/AiProviderModelCatalog.kt)（`withModelCatalog`）、[AiProviderPresets.kt](app/src/main/java/com/xiaomanjun/sleepdownschedule/feature/importing/AiProviderPresets.kt)（`modelOptions`）与 [AiImportSettingsScreen.kt](app/src/main/java/com/xiaomanjun/sleepdownschedule/feature/settings/AiImportSettingsScreen.kt) 在存在官方模型目录时丢弃用户自添加模型的问题；补全 [AiImportSettingsStore.kt](app/src/main/java/com/xiaomanjun/sleepdownschedule/feature/importing/AiImportSettingsStore.kt) 中 `saveProvider` 变更通知与 `defaultModel` 去空格；在 [AiRuntimePicker.kt](app/src/main/java/com/xiaomanjun/sleepdownschedule/feature/importing/AiRuntimePicker.kt) 中订阅 `settingsChanges` 并保存保留全部已配模型；并在 [CascadingListPopupLayout.kt](miuix-local/miuix-ui/src/commonMain/kotlin/top/yukonga/miuix/kmp/layout/CascadingListPopupLayout.kt) 中同步实时次级菜单项并隔离测量探针语义。
+  - 本轮 `ScheduleOverlapMotionTest`（5 项）、`WeekEditMotionTest`（14 项）、`AiProviderModelCatalogTest`（7 项）、`AiProviderPresetsTest`（11 项）、`AiRuntimePickerStateTest`（4 项）、`AiRuntimePickerAnimationTest`（2 项）全部通过，`compileGithubReleaseKotlin`（单 worker）与 `git diff --check` 通过。随后 `assembleGithubRelease` 通过，生成 2.0.3 / 39 签名 APK `app/build/outputs/apk/github/release/app-github-release.apk`（8,978,863 字节，SHA-256 `0850BEA1…`）。19:12 经 Android SDK ADB 37.0.1（`5038` USB 通道，服务端 `D:\Android studio\AndroidSDK\platform-tools\adb.exe`）覆盖安装至 `PLJ110`（`3B15AE023YL00000`，Android 17 / API 37）并返回 `Success`；设备 `base.apk` SHA-256 回读一致，`firstInstallTime`（`2026-08-16 01:20:27`）保留，未主动启动，尚未提交 Git，真机交互视觉待实机验收。
+- **2026-11-25 续：重叠课程居中排版、SleepDown 材质同步、拖拽收入回弹动效与原地无缝进编辑器**：
+  - 居中与 SleepDown 材质适配（[ScheduleOverlapPreview.kt](app/src/main/java/com/xiaomanjun/sleepdownschedule/feature/home/overlay/ScheduleOverlapPreview.kt)、[ScheduleAppUi.kt](app/src/main/java/com/xiaomanjun/sleepdownschedule/app/ui/ScheduleAppUi.kt)、[WeekCourseBlock.kt](app/src/main/java/com/xiaomanjun/sleepdownschedule/feature/home/week/WeekCourseBlock.kt)）：时间轴＋卡片台＋标题栏居中排布且展开卡正文居中；卡片圆角改用 `adaptiveWeekCardCornerRadius(..., cornerProgress)` 响应直角设置，`CourseGlassCard` 接入 `backgroundBackdrop` 真实采样与 `expandedOutlineLight` 轮廓光；右上角 `N门` 角标（`CourseOverlapBadge`）及关闭按钮（`OverlapCloseButton`）接入 `LocalNativeMaterialSurfaceRenderer` / `LiquidButton` / `GlassPill` 与景深缩放后的 `courseOverlapBackdrop`。
+  - 拖拽重叠收入动效（[WeekEditOverlayController.kt](app/src/main/java/com/xiaomanjun/sleepdownschedule/feature/home/week/WeekEditOverlayController.kt)、[WeekEditOverlayHost.kt](app/src/main/java/com/xiaomanjun/sleepdownschedule/feature/home/week/WeekEditOverlayHost.kt)、[WeekCourseBlock.kt](app/src/main/java/com/xiaomanjun/sleepdownschedule/feature/home/week/WeekCourseBlock.kt)、[WeekCourseLayout.kt](app/src/main/java/com/xiaomanjun/sleepdownschedule/feature/home/week/WeekCourseLayout.kt)）：移动/调整落点与现有课程重叠时，拖入卡下移（`dipOffsetY`）并缩入前景课程后方（`scale` 下探至 `0.78`、`zIndex` 后置），前景课程同步执行吸气放大—压缩—回弹反馈（`weekEditFrontAbsorbTransform`），并在写入持久化交接期保持前景课程置顶。
+  - 原地无缝打开课程编辑器（[ScheduleOverlapPreview.kt](app/src/main/java/com/xiaomanjun/sleepdownschedule/feature/home/overlay/ScheduleOverlapPreview.kt)、[ScheduleAppUi.kt](app/src/main/java/com/xiaomanjun/sleepdownschedule/app/ui/ScheduleAppUi.kt)）：展开重叠预览点击卡片时通过 `CourseEditorSourceHandoff` 原地冻结当前卡片并淡出其余卡片与头部，同时保持 1.08× 景深直接无缝 morph 到 `CourseEditorContainerOverlay`。
+  - 验证：`ScheduleOverlapMotionTest`（5 项全部通过）、`WeekEditMotionTest`（含新增 `tuckUnderLandingDipsDownwardShrinksBehindFrontCardAndTriggersInhaleRecoil` 共 15 项全部通过）、`compileGithubReleaseKotlin`（`--no-parallel --max-workers=1`）与 `git diff --check` 全部通过；随后 `assembleGithubRelease` 通过，生成 2.0.3 / 39 签名 APK [app-github-release.apk](app/build/outputs/apk/github/release/app-github-release.apk)（8,978,863 字节，SHA-256 `359F3748…`）。19:41 经 Android SDK ADB 37.0.1（`5038` USB 通道，服务端 `D:\Android studio\AndroidSDK\platform-tools\adb.exe`）覆盖安装至 `PLJ110`（`3B15AE023YL00000`，Android 17 / API 37）并返回 `Success`；设备 `base.apk` SHA-256 回读一致，`firstInstallTime`（`2026-08-16 01:20:27`）保留，未主动启动，尚未提交 Git；用户授权后续只要设备在线即执行覆盖安装，真机交互视觉待实机验收。
+- **2026-11-25 再续：重叠动效时序、碎边消除、排布重构与重做无缝进/退编辑器**：
+  - 最终叠放判定与先覆后收动效（[WeekEditOverlayController.kt](app/src/main/java/com/xiaomanjun/sleepdownschedule/feature/home/week/WeekEditOverlayController.kt)、[WeekEditOverlayHost.kt](app/src/main/java/com/xiaomanjun/sleepdownschedule/feature/home/week/WeekEditOverlayHost.kt)、[WeekCourseBlock.kt](app/src/main/java/com/xiaomanjun/sleepdownschedule/feature/home/week/WeekCourseBlock.kt)、[WeekCourseLayout.kt](app/src/main/java/com/xiaomanjun/sleepdownschedule/feature/home/week/WeekCourseLayout.kt)）：拖动移动与缩展结束时通过 `predictWeekEditOverlapOutcome` 按落点后的最终堆叠关系决定是否触发收入动效；触发时分两阶段播放——先在顶层（`zIndex = 3f`）对准落到前景卡上方，随后下移缩入前景卡后方（`zIndex = 1f`、`behindFront`），前景卡同步执行吸气吞入—压缩—回弹动效；跨编辑态持续上报卡片边界并在 `tuckUnderActive` 交接期保持原子切换，避免前景卡或角标闪烁。
+  - 去重 `N门` 角标（[ScheduleOverlapMotion.kt](app/src/main/java/com/xiaomanjun/sleepdownschedule/feature/home/overlay/ScheduleOverlapMotion.kt)）：将 `showOverlapBadge` 改为仅每个直交重叠组最顶层卡（`directGroup.lastOrNull()?.id == slot.id`）显示一次。
+  - 消除展开卡碎边与视觉排版调整（[CourseGlassCard.kt](app/src/main/java/com/xiaomanjun/sleepdownschedule/glass/ui/CourseGlassCard.kt)、[ScheduleOverlapPreview.kt](app/src/main/java/com/xiaomanjun/sleepdownschedule/feature/home/overlay/ScheduleOverlapPreview.kt)）：为 `CourseGlassCard` 增加 `nativeCaustic` 开关并在重叠展开/飞行卡片禁用外扩 `CouiCaustic`（保留 `CouiContour` 轮廓光与渐变），新增可响应圆角设置的 `overlapExpandedCardCornerRadius`（基准 `22.dp`、`6..30.dp` 范围），放大左侧 `52.dp` 时间轴与居中的节次数字/起止时间，顶部星期标题与副标题改为沿时间轴＋卡片台左缘左对齐并放大至 `28.sp` / `15.sp`。
+  - 重做重叠页 ↔ 课程编辑器专属无缝转场（[CourseEditorMotion.kt](app/src/main/java/com/xiaomanjun/sleepdownschedule/feature/course/editor/CourseEditorMotion.kt)、[CourseEditorContainerOverlay.kt](app/src/main/java/com/xiaomanjun/sleepdownschedule/feature/course/editor/CourseEditorContainerOverlay.kt)、[ScheduleOverlapPreview.kt](app/src/main/java/com/xiaomanjun/sleepdownschedule/feature/home/overlay/ScheduleOverlapPreview.kt)、[ScheduleAppUi.kt](app/src/main/java/com/xiaomanjun/sleepdownschedule/app/ui/ScheduleAppUi.kt)）：新增直线无抛物线渐变 `overlapCourseEditorMorphSpec` 与等比例居中表单缩放；`ScheduleOverlapController` 在进入编辑器期间保持 `session` 存活，兄弟卡片由实时 `editorProgressReader` 驱动推开/淡出，背景锁定 `1.08×` 景深（`courseOverlapCardBackdrop`）并通过 `resolveLiveOverlapEntriesForDay` / `syncWithLiveEntries` 同步编辑或删除后的课程，关闭编辑器时先无缝回到重叠页再决定是否退出景深。
+  - 验证：`ScheduleOverlapMotionTest`（7 项全部通过，含 `twoStaggeredCoursesShowOverlapBadgeOnlyOnceOnTopCard` 与 `overlapCourseEditorMorphSpecMovesInStraightLineAndCrossfadesCleanly`）、`WeekEditMotionTest`（16 项全部通过，含 `predictWeekEditOverlapOutcomeUsesFinalStackOrderToDecideTuckAnimation`）、`assembleGithubRelease`（单 worker、无跳过压缩/混淆）与 `git diff --check` 全部通过；签名 APK [app-github-release.apk](app/build/outputs/apk/github/release/app-github-release.apk)（8,995,247 字节，SHA-256 `700944C3…`）已生成。21:34 经 Android SDK ADB 37.0.1（`5038` USB 通道，服务端 `D:\Android studio\AndroidSDK\platform-tools\adb.exe`）覆盖安装至 `PLJ110`（`3B15AE023YL00000`，Android 17 / API 37）并返回 `Success`；设备 `base.apk` SHA-256（`700944C3…`）回读一致，版本 `2.0.3` / `39`，`firstInstallTime`（`2026-08-16 01:20:27`）保留，未主动启动，尚未提交 Git，真机交互视觉待实机验收。
+- **2026-11-25 终续：收紧重叠圆角、修复全屏模糊卡死、接入 Compose 共享元素进出编辑器与四拍收入回弹**：
+  - 收缩展开卡圆角（[ScheduleOverlapPreview.kt](app/src/main/java/com/xiaomanjun/sleepdownschedule/feature/home/overlay/ScheduleOverlapPreview.kt)）：将 `overlapExpandedCardCornerRadius` 从 `6/22/30.dp`（0.28× 上限）下调至 `4/14/18.dp`（0.18× 上限），更契合 SleepDown 周课表卡片。
+  - 修复退出重叠页卡住全屏模糊（[CourseEditorContainerOverlay.kt](app/src/main/java/com/xiaomanjun/sleepdownschedule/feature/course/editor/CourseEditorContainerOverlay.kt)、[ScheduleAppUi.kt](app/src/main/java/com/xiaomanjun/sleepdownschedule/app/ui/ScheduleAppUi.kt)、[ScheduleOverlapPreview.kt](app/src/main/java/com/xiaomanjun/sleepdownschedule/feature/home/overlay/ScheduleOverlapPreview.kt)）：根因是此前 `CourseEditorContainerOverlayHost` 在保留景深时取消 `bgJob`，导致永久存活的空闲 `CourseEditorSession.motionState.backgroundZoom` 停在 `1.08f`；现关闭完成及空闲态强制归位 `1f`，且 `ScheduleAppUi` 仅统计 `visible` 会话，同时 `ScheduleOverlapController.dismiss` 忽略重复关闭请求、`syncWithLiveEntries` 在数量降至 1 时改为平滑 `dismiss()`。
+  - 官方 Compose 共享元素展开编辑器（[ScheduleOverlapPreview.kt](app/src/main/java/com/xiaomanjun/sleepdownschedule/feature/home/overlay/ScheduleOverlapPreview.kt)、[ScheduleAppUi.kt](app/src/main/java/com/xiaomanjun/sleepdownschedule/app/ui/ScheduleAppUi.kt)）：移除旧双宿主 `overlapCourseEditorMorphSpec` / `sourceOverlapAppearance`，在 `CourseOverlapOverlay` 内部改用 Compose `SharedTransitionLayout` + `AnimatedContent` + `Modifier.sharedBounds`（`RemeasureToBounds` + `OverlayClip(RoundedRectangle(sharedCornerRadius))` + `skipToLookaheadSize()`），共享 `Coui` / 玻璃背景壳体直接形变并平滑回到重叠页，且移除外层 `.zIndex(8f)` 确保位于 `MiuixPopupHost()` 之下；修复 `ScheduleAppUi` 监听真实 `state.courses/periods/config`（而非冻结的 `visualState`）同步编辑与删除。
+  - 四拍拖动重叠收入动效（[WeekEditOverlayController.kt](app/src/main/java/com/xiaomanjun/sleepdownschedule/feature/home/week/WeekEditOverlayController.kt)、[WeekEditOverlayHost.kt](app/src/main/java/com/xiaomanjun/sleepdownschedule/feature/home/week/WeekEditOverlayHost.kt)）：阶段 1 先对齐落至前景卡上方，阶段 2 前半（`<= 0.42f`）保持在顶层往下运动同时缩小至 `0.80` 并渐隐至 `0.36`，到达底部极限后切换 `behindFront` 飞入下层归位，卡片就位后（`0.74f..1.0f`）再触发前景卡挤压与回弹。
+  - 验证：`ScheduleOverlapMotionTest`（7 项全部通过，含新增 `overlapExpandedCardCornerRadiusStaysCompactAndRespectsCornerSetting`）、`WeekEditMotionTest`（16 项全部通过，含更新后四拍验证的 `tuckUnderLandingDipsDownwardShrinksBehindFrontCardAndTriggersInhaleRecoil`）、`assembleGithubRelease`（单 worker、无跳过）与 `git diff --check` 全部通过；签名 APK [app-github-release.apk](app/build/outputs/apk/github/release/app-github-release.apk)（9,011,631 字节，SHA-256 `0FB23DCE…`）已生成。22:03 经 Android SDK ADB 37.0.1（`5038` USB 通道，服务端 `D:\Android studio\AndroidSDK\platform-tools\adb.exe`）覆盖安装至 `PLJ110`（`3B15AE023YL00000`，Android 17 / API 37）并返回 `Success`；设备 `base.apk` SHA-256（`0FB23DCE…`）回读一致，版本 `2.0.3` / `39`，`lastUpdateTime=2026-11-25 22:03:47`，`firstInstallTime`（`2026-08-16 01:20:27`）保留，未主动启动，尚未提交 Git，真机交互视觉待实机验收。
+- **2026-11-25 补续：移除重叠页共享元素动画、改为居中缩放淡入淡出，并放大拖动重叠下移幅度和回弹**：
+  - 移除重叠页全部共享元素动画（[ScheduleOverlapPreview.kt](app/src/main/java/com/xiaomanjun/sleepdownschedule/feature/home/overlay/ScheduleOverlapPreview.kt)、[ScheduleAppUi.kt](app/src/main/java/com/xiaomanjun/sleepdownschedule/app/ui/ScheduleAppUi.kt)）：删除 `CourseOverlapOverlay` 中的 `SharedTransitionLayout`、`AnimatedContent`、`sharedBounds`、`OverlayClip`、`skipToLookaheadSize` 及 `ExpandedOverlapCard` 的 `sharedScope`，将 `openSharedEditor` / `closeSharedEditor` 更名为 `openEditor` / `closeEditor`；在 `CourseOverlapOverlay` 内部使用 `Animatable(0f)`（`editorReveal`）+ `retainedEditorEntry` 驱动居中缩放淡入/淡出（打开 `scale 0.90 -> 1.0`、退回 `200ms` 退出内容保持挂载，背景卡台平滑缩退 `1.0 -> 0.94` 并保持横滚位置），点击、保存、删除及返回键均直接平滑退回重叠页。
+  - 放大拖动重叠下移收入动画（[WeekEditOverlayHost.kt](app/src/main/java/com/xiaomanjun/sleepdownschedule/feature/home/week/WeekEditOverlayHost.kt)、[WeekEditOverlayController.kt](app/src/main/java/com/xiaomanjun/sleepdownschedule/feature/home/week/WeekEditOverlayController.kt)）：`dipMaxPx` 从 `0.38 × heightPx`（`42..76.dp`）放大至 `0.78 × heightPx`（`80..148.dp`），`tuckTransform` 启用期间统一使用 `TransformOrigin.Center` 防止抓顶边缘缩放抵消下移；阶段 1 `130ms` 平落上方，阶段 2 延时至 `600ms`——前段（`<= 0.45f`）在顶层下移至底部极限并缩至 `0.78`、渐隐至 `0.30`，随后切换 `behindFront` 飞入下层归位（`0.45f..0.78f`），就位后（`0.74f..1.0f`）前景上方卡压缩（`0.95`）并弹性回弹（`1.06 -> 1.0`）。
+  - 验证：`ScheduleOverlapMotionTest`（7 项全部通过）、`WeekEditMotionTest`（16 项全部通过，含更新后四拍断言的 `tuckUnderLandingDipsDownwardShrinksBehindFrontCardAndTriggersInhaleRecoil`）、`assembleGithubRelease`（单 worker、无跳过）与 `git diff --check` 全部通过；签名 APK [app-github-release.apk](app/build/outputs/apk/github/release/app-github-release.apk)（8,995,247 字节，SHA-256 `190C1868…`）已生成。23:36 经 Android SDK ADB 37.0.1（`5038` USB 通道，服务端 `D:\Android studio\AndroidSDK\platform-tools\adb.exe`）覆盖安装至 `PLJ110`（`3B15AE023YL00000`，Android 17 / API 37）并返回 `Success`；设备 `base.apk` SHA-256（`190C1868…`）回读一致，版本 `2.0.3` / `39`，`lastUpdateTime=2026-11-25 23:36:14`，`firstInstallTime`（`2026-08-16 01:20:27`）保留，未主动启动，尚未提交 Git，真机交互视觉待实机验收。
+
+## 2026-11-23：以 2.0.3 为基线的工作目录瘦身
+
+- 用户明确后续从当前 2.0.3 继续开发，授权删除不再需要的内容，包括废弃截图、日志和视频；保留展示开发历程的素材。当前主工作树 HEAD 为发布提交 `83823fd025200e2b8753fd1c7738d79e5f7dc2d9`，`main` 已包含该提交。
+- 删除父目录两份失效旧 Git 对象库、APatch 旧实验、ColorOS 逆向样本、宣传视频及关联旧安装包、旧 Gradle 缓存、可重建构建产物、模拟器快照与临时缓存、旧诊断材料和零散调试截图／日志。共删除 45 个目录和 27 个零散文件，无失败项；D 盘可用空间由 21.55 GiB 增至 39.24 GiB，编译复验后为 39.13 GiB。
+- 完整保留 `D:\个人资料\图片\SleepDown开发历程`（321 个文件，324.6 MiB）及其原始截图来源。主仓库历史、14 个 stash、6 个 worktree、ColorOS/Miuix 未提交源码、签名与私有后端配置、Go 工具链、Android 8 测试 AVD、SDK 系统镜像和 Pixel 10 Pro 用户数据均未删除。
+- 清理后 `compileGithubReleaseKotlin` 从全新构建产物状态执行通过，50 个任务成功，耗时 5 分 19 秒。仅保留本次重新生成的当前构建产物；未重新打包或安装。
+
+## 2026-11-21 续：签名口令告警排查
+
+- 用户要求查看手机上的 GitGuardian「密钥库密码」邮件截图。GitHub 仓库的常规密钥告警和单独的密码告警均返回零条。邮件截图未显示 GitGuardian 匹配的提交或文件行。
+- 对照 `v2.0.2`、`v2.0.3` 和公开 refs 的签名相关历史。主包及组件均通过本地 Gradle 属性或环境变量读取正式签名口令。本轮的签名配置没有写入口令，公开历史中的字面命中为早期 Android 调试密钥库默认值，未找到签名密钥库文件。GitGuardian 的具体匹配项待原始 GitHub 来源链接确认。
+
+## 2026-11-21 续：2.0.3 GitHub 与 Gitee 正式发布
+
+- 用户确认发布刚验收的 2.0.3。发布 PR [#111](https://github.com/xiaomanjun233/SleepDown-Schedule/pull/111) 的 72 个变更文件与本地一致，架构、Release Kotlin 编译、Android 定向回归及无签名 Debug 打包全部通过。发布构建提交为 `83823fd025200e2b8753fd1c7738d79e5f7dc2d9`，已通过合并提交 `348ddbf382e35f4986cefef87fe86b3acefbd0ba` 纳入 main，源码树相同。GitHub 和 Gitee 的 main 及 `v2.0.3` 标签回读一致。
+- 从发布提交重新签名构建，APK 内的源码记录更新为该构建提交。除源码记录外，每个 ZIP 条目的 SHA-256 与 PLJ110 实机验收包一致。主包为 2.0.3 / 39，10,039,206 字节，SHA-256 `b4f1289bef6ba9e8f2b254e72235f884196dfdacb49a77c997e2e9f501edb4eb`。课程组件沿用 6.0.19 / 259，3,577,334 字节，SHA-256 `5f5b4c4716c2218ce5277fe336b221cd6f85b85d04dc8ee9f72ecbb8d78ac593`。
+- [GitHub 正式版](https://github.com/xiaomanjun233/SleepDown-Schedule/releases/tag/v2.0.3)（453550635）与 [Gitee 正式版](https://gitee.com/xiaomanjun233/SleepDown-Schedule/releases/tag/v2.0.3)（1342444）均已公开。两端主包与课程组件的公开下载回读通过。GitHub latest 和应用实际使用的 Gitee 发布列表均已收录 2.0.3。前一版西建大 #109 已关闭，两端应用仓库没有待处理的相关开放 PR。
+
+## 2026-11-21 续：核对卡片字段对齐
+
+- 课表更新核对卡片的两列字段从各自左边缘开始排，图标在同列对齐。超出列宽的文字在本行自动滚动，图标固定在原位。
+- 字段行距增至 8dp，卡片间距增至 10dp，卡片圆角增至 20dp，并增加内边距。标题仍按实际行数撑开。
+- 核对页对齐的 6 项定向测试通过。调整间距和圆角后，`compileGithubReleaseKotlin` 通过。
+- 最新核对卡片版通过 `assembleGithubRelease`。签名 APK 仍为 2.0.3 / 39，10,039,206 字节，SHA-256 为 `c33b485353fd4cb7d27ab5b5272ff3aacf516178ca8f463b998e938e2bcbe1f5`。16:02 通过 Android SDK ADB 37.0.1 的 5038 服务和无线 TLS 通道覆盖安装至 PLJ110（Android 17 / API 37，`3B15AE023YL00000`）。设备 APK 哈希一致，首次安装时间保留。
+
+## 2026-11-21 续：2.0.3 日志与本机安装
+
+- 按用户定稿收录「课表自动刷新」和「兼容性与教务体验」两条说明。仓库与应用内的 2.0.3 日志逐字节一致，历史仍收录 2.0.2、2.0.1 和 2.0。
+- 主应用升级为 2.0.3 / 39。`assembleGithubRelease` 通过，完成 R8、资源压缩、lintVital 与签名校验。APK 为 10,039,206 字节，SHA-256 为 `6a409027712ebd1c882bc11cf470b61f1f49b1226d3f67eb0a268dfcb0e45a9e`。安装前校验 APK 内四版日志与仓库文件一致。
+- 00:12 通过 Android SDK ADB 37.0.1 的 5038 服务和无线 TLS 通道覆盖安装 PLJ110（Android 17 / API 37，`3B15AE023YL00000`）。手机回读版本 2.0.3 / 39，APK 哈希一致，首次安装时间保留。
+- 历史日志的定向界面测试通过，新版日志可见，旧版日志仍可逐项展开。
+
+## 2026-11-20 续：课表更新核对卡片
+
+- 缩小卡片间距和卡内纵向留白。原信息与更新后的信息各自使用等宽的两列，字段和图标在各列居中。长字段在列内横向滑动，整张 Sheet 可纵向滚动。原信息仍位于更新后的信息上方，两段以细线分开。
+- 移除标题行的最低高度，标题区随标题实际行数增高，单行标题下方紧接课程信息。
+- 有钟点信息时节次在时间字段集中显示，安排字段只显示星期。部分节次缺少钟点时，保留节次编号与已有钟点的对应关系。
+- 「课表更新」的刷新结果说明移到主按钮下方。选校页的本机适配移除三点管理入口，点击条目直接打开教务页面，同 ID 的 AI 仓库版本发布后接管条目。
+- `compileGithubReleaseKotlin` 通过。核对页与双仓库接管共 13 项定向测试通过，覆盖标题间距、两列对齐、横向滑动、节次去重和同 ID 接管。
+
+## 2026-11-20 续：Android Studio 目录清理与核对批量选择
+
+- 递归盘点 `D:\Android studio`，清理已验证重复的工具解包目录和安装包、旧 Gradle 生成缓存、IDE 日志、临时构建与验收产物。注销两个干净的旧动效工作树并保留其分支。共清出 4.64 GiB，目录由 48.01 GiB 降至 43.37 GiB。核对清理前后的现有签名 APK 哈希一致。
+- 父目录的两份旧 Git 对象库含现用仓库没有的对象，保留至确认历史可恢复。模拟器快照、源码改动、原始材料和构建工具链均保留。空 JVM 临时目录 `tmp/hsperfdata_23085` 因 Windows 权限保留。
+- 核对课表更新时，连续节次合并显示首节开始至末节结束，断开的节次单独显示。新增、移除、变更标记使用课程标题旁的胶囊。勾选后复用课表管理的底部 COUI 悬浮操作栏，唯一操作在「全选」和「全不选」间切换。选择范围包含学期变更，清空后操作栏退出。
+- `compileGithubReleaseKotlin` 通过。自动刷新核对和 AI 助理计划共 24 项定向测试通过，其中核对页覆盖连续与断开的节次、全选和全不选，以及取消和确认。
+- 核对批量选择版通过 `assembleGithubRelease`，包括 R8、资源压缩、lintVital 与签名校验。APK 为 2.0.2 / 38，10,038,758 字节，SHA-256 `2324a21a1b927c45d96503dc043b5127bdd27e9a78c15b50e6514625c675bf25`。23:11 通过 Android SDK ADB 37.0.1 的 5038 服务和无线 TLS 通道覆盖安装 PLJ110（Android 17 / API 37，`3B15AE023YL00000`）。设备 APK 哈希与本机包一致，首次安装时间保留。
+
+## 2026-11-20 续：自动刷新差异核对 Sheet
+
+- 根据 PLJ110 截图，旧选择弹窗在存在四项差异时挤掉了完整差异区。最终按用户指定，替换为流体云「教程与诊断」同款的全高 COUI Sheet。面板延伸至手势导航条背后，滚动列表末尾消费一次底部安全区。顶部为「取消」和「确认」。自动刷新入口已有差异时显示「刷新课表」。
+- 首行采用 COUI 设置组的信息排版。变更卡片沿用 AI 助理的表面与课程管理字段图标。原信息在上，更新后的信息在下，以一条细线、字色和字重区分；同组的图标与内容自然换行。移除仅标记并显示原信息。复选框靠右对齐卡片顶部，确认后采用选中的变更，取消保留待核对记录。
+- 后台检查有待核对的变更时，在可操作的首页自动打开同一张 Sheet。首页与刷新页共享取消状态，同一条待核对记录可从「刷新课表」主动重开。
+- 后续清理移除了 8 个旧 Git 工作树与 5 个可重建克隆，以及重复 Go 环境、依赖缓存、脱离旧测试包的 mapping、临时浏览器配置和解包／逐帧产物。旧分支 refs 保留，发现的独有交接草稿、局部补丁与用户提供的 Nexio 对照包集中于 `tmp/retained-local-changes`。保留有未提交修改的 ColorOS 工作树、带本地独有提交的适配仓、Android 8 AVD 和唯一可用的 Go 1.27.3 工具链。
+- 全高版首个签名候选已通过 `assembleGithubRelease`，17:47 通过 Android SDK ADB 37.0.1 的 5038 USB 通道覆盖安装 PLJ110（Android 17 / API 37）。设备 APK SHA-256 `27b996596fe1b58aae846c26ecbc008d3e474b3277bebeb8d95f70d967045814` 回读一致，保留首次安装时间。随后按反馈继续精简卡片。
+- 精简卡片版于 18:04 通过 `assembleGithubRelease`（含 R8、资源压缩、lintVital 和正式签名），APK 为 2.0.2 / 38，10,038,758 字节，SHA-256 `386274c3b1219db98f803b5c45ebbb29d7c1ca92b437b2068e4ea5bd9203c554`。清理前后项目约 9.53 → 4.2 GiB，`tmp` 由 6.23 → 1.22 GiB。
+- 精简卡片版的自动刷新 Sheet 与 AI 助理计划共 23 项定向测试通过，覆盖原安排在上、更新在下、移除标记、取消保留待核对记录和按勾选确认。
+- 用户要求改用无线调试。22:06 通过 Android SDK ADB 37.0.1 的 5038 服务与无线 TLS 通道覆盖安装同一台 PLJ110（Android 17 / API 37）。设备 SHA-256 与精简卡片签名包一致，原首次安装时间保留。未主动打开应用。
+- 补充清理 896 个本地验收截图、录屏副本、日志、界面转储及性能测试生成文件，共 125,876,531 字节，移除 18 个空目录。保留原始录屏、参考素材和已有源码改动。工作树状态和签名 APK 哈希经删除前后对照一致。清理后项目约 4.12 GiB，`tmp` 约 1.11 GiB。
+
+## 2026-11-20 续：自动刷新目标课表与本机清理
+
+- 修复自动刷新页将首页精简状态中省略的课表列表误判为课表删除的问题。「课表更新」新增「将自动刷新应用于」Popup，直接观察数据库的课表列表。原 ID 确实找不到时提示重新选择，确定目标后沿用同一 WebView Profile、教务选项和刷新频率。若连接本身需要登录或验证，继续显示对应处理入口。
+- 目标变更和刷新、核对共用同一把锁。切换后清除原目标的待核对记录和最近检查结果，旧浏览窗口的结果会被拒绝。新目标仍沿用先核对后保存的流程。
+- 删除专用 Android 9 AVD 及其 API 28 镜像，清理已核对的 32 份历史 APK 和重复测试包，同时清理过期生成文件。保留 Android 8 和 Pixel AVD、当前公开主包和组件包、单独记录的首页性能基线与验收素材。旧系统兼容候选已通过 SDK ADB 37.0.1 的 5038 USB 通道覆盖安装至 PLJ110（Android 17 / API 37，`3B15AE023YL00000`），设备 APK 与兼容修复候选的 SHA-256 一致。
+- 最终目标选单版通过 `assembleGithubRelease`（含 R8、资源压缩和 lintVital）。签名 APK 为 2.0.2 / 38，10,022,374 字节，SHA-256 为 `c3b339fc0d40d42420b0b71f5309b17f045713c362339331e7e84aeec26ae1a2`。17:06 通过同一 SDK ADB 5038 USB 通道二次覆盖安装，设备 APK 哈希一致，首次安装时间保留。按默认安装流程未主动启动应用。
+- 9 组 34 项定向测试通过，覆盖首页精简状态与真实课表列表的区别、改绑后的会话保留与待验证状态、课表差异核对。实机仅核验安装，未使用学校账号重新取课。
+
+## 2026-11-19 续：2.0 系列旧系统启动闪退
+
+- 任务范围为 2.0 系列的旧 Android 兼容性。在专用 Android 9 模拟器 `SleepDown_Android9_Test`（API 28，`emulator-5560`，SDK ADB 5037）复现官方 2.0 和 2.0.2 启动闪退。两版均在主线程加载凝光跟手光预设时抛出 `NoClassDefFoundError: android.graphics.BlendMode`。2.0 DEX 的枚举常量和字段指向 `SpotlightPreset`，根因是预设初始化早于绘制端的系统版本检查。
+- 首个签名修复候选越过预设初始化后，在启动绘制时触发第二条 `NoClassDefFoundError: android.graphics.RuntimeShader`。按候选的精确 R8 mapping 定位到 `InteractiveHighlight.drawHighlightLayer`。原代码在判断系统版本前读取了带平台类型转换的惰性属性。现在旧版径向高光走基础绘制，着色器对象只在 API 33 及以上的绘制分支创建和访问。
+- 跟手光预设及菜单样式改用 Compose 混合模式，只有启用平台绘制时才设置原生 Paint。旧系统进入受支持的基础控件路径。修复周课表时间轴的 `Duration.toSeconds()` 和多课表入口的 `View.transformMatrixToGlobal()` 版本依赖，补齐材质及通知 API 入口的版本边界。
+- 兼容扫描后为 Android 8.x 补齐凝光顶栏、滚轮和弹层字体回退，并补齐 API 29/31/33/34 的材质入口约束。最终应用模块 `NewApi/InlinedApi` 扫描无问题。凝光模块仍将 `CouiFloatingMaterial` 受 API 29 约束的同一个默认混合模式报告两次。Android 8.0 镜像已安装，测试模拟器因数据盘空间不足未能启动。
+- 常规签名 `assembleGithubRelease` 与 23 项定向测试通过，含 Android 9 跟手光预设加载、坐标换算、时间轴及凝光材质。签名候选 SHA-256 为 `a4347d8a0f7ae3adfe6b4a5e0b5e5b289bbea8d6cb10a67513a172e61eee4d78`。Android 9 模拟器从已发布 2.0.2 覆盖后通过冷启动、首页切周、多课表管理和课表详细设置，最终包复测未新增应用崩溃。构建包含上一轮未发布的自动刷新改动，未覆盖安装物理手机或发布。
+
+## 2026-11-19 续：重构课表自动刷新
+
+- 开发分支 `codex/edu-auto-refresh-redesign` 从 `origin/main` 的 `a28ff559` 派生。普通教务导入继续走原有预览入口。自动刷新选定现有课表后，为该绑定创建独立 WebView Profile，在可见页登录，再用同一 Profile 的新 WebView 验证取课。
+- 绑定记录保存课表 ID、教务入口、脚本指纹和用户选定的教务选项。升级后旧绑定保留学校、课表、头像和刷新偏好，需要重新连接一次。WebView 缺少多 Profile 支持或脚本需要可见页时，可手动取课核对。
+- 手动和定时检查共用差异核对。定时检查可继续检查更新的教务数据，用户确认前课程和学期信息不会写入 Room。登录过期、教务选项变化、脚本更新或目标课表删除时，界面显示恢复入口。网络错误仅做有限重试。
+- 最终 GitHub Release Kotlin 编译和 31 项定向测试通过，拾光脚本运行及 POST 桥回归通过。Android 16 模拟器 `emulator-5554` 通过 SDK ADB 的 5037 服务执行带合成教务页面的测试。已验证前台关闭后后台能凭同一 Profile 内带路径限制的 HttpOnly Cookie 取回课程，另一条绑定返回需要登录。设备测试用临时 Gradle 脚本跳过已有 `ScheduleRepositoryDataBoundaryTest.kt` 的过时助理引用。真实学校账号与跨天调度待验证，当前没有发布或覆盖安装用户手机。
+
+## 2026-11-19 续：西建大适配审查与 AI 仓发布
+
+- 核对 SleepDown PR #109 的 head `b83a57b` 和作者 `pu-007`。拾光 `pending` 已有 `XAUAT_01`（原维护者 `Alph4rc`），脚本基线与该 PR 所修的原实现一致。用户确认转交后已创建 [拾光 PR #938](https://github.com/ShiGuangSchedule/shiguang_warehouse/pull/938)，目标 `pending`，head `976c865`，仅改 `resources/XAUAT/xauat.js`，等待上游审查。
+- 两份候选保留 #109 的周次、周日首日、学校作息及跨周教室教师修复，补齐节次连续和 60 周上限校验，并按实际开课时间排序。原 PR 的脱敏课表回归和新增边界用例通过，拾光 Schema 与两个仓库的索引构建通过。本轮未另行登录学校实测。
+- 共用 AI 仓库 `HaoZai000/edu-ai-dock` 已发布 `2fe4f4a`，本科适配 ID 为 `XAUAT_AI_01`，维护者 `pu-007`，源码带原适配署名和 MIT 许可。GitHub 主仓与 Gitee 镜像的公开索引均已收录，GitHub 脚本 SHA 与本地校验版一致。SleepDown PR #109 仍开放。
+
+## 2026-11-19 续：2.0.2 正式发布与旧版免费 AI 停用
+
+- 用户确认按最后修改的 `release-notes/v2.0.2.md` 打包、正式发布到 GitHub 和 Gitee，并在新版可升级后停用旧版每日免费 AI。日志已同步到 APK 资源，按字节比对一致。主包 `com.xiaomanjun.sleepdownschedule` 为 `2.0.2` / `38`，历史日志继续保留 2.0.1。
+- `assembleGithubRelease` 和 `AboutSettingsUiTest` 两项均通过，[PR #110](https://github.com/xiaomanjun233/SleepDown-Schedule/pull/110) 的完整 GitHub 检查通过。构建提交 `a044c055` 与合并提交 `a28ff559` 的源码树相同，两端 `main` 与 `v2.0.2` 已同步。西建大 #109 仍有独立适配差异，且和退役热修文件有冲突，保留开放。
+- 两端正式版和 App 使用的更新列表已回读。主 APK 的公开下载件均为 10,022,374 字节，SHA-256 `96e7b7b6e430222e0931f3703e46294491589683f04f1036a74efe8ae1cabb47`，APK v2 签名证书与上一版一致。课程组件沿用 `6.0.19` / `259`，Gitee 下载件和 GitHub 公共附件元数据均与原版 SHA-256 一致，GitHub 组件下载回读遇到连接超时。本轮未安装。
+- 主 APK 双平台公开回读验证通过后，生产免费 AI 最低版本由 30 调为 38，配置修订由 261 增至 262。线上验证版本代码 30、36、37 不再收到可用配置，2.0.1 的免费对话与导入扣次均返回 `403 AI_VERSION_BLOCKED`，版本代码 38、39 仍收到可用配置，2.0.2 的两类额度可读。
+
+## 2026-11-19 续：2.0.2 致谢与更新日志送审
+
+- 两套关于页将 COUI 库的致谢标题统一为「凝光视效」，保留 COUI-Kit、作者、许可和项目链接，新增与 Nexio 课程表共用的 AI 教务适配仓库入口。
+- 已准备 `release-notes/v2.0.2.md` 和内容一致的应用内资源，待用户审阅。`compileGithubReleaseKotlin` 与 `git diff --check` 通过。现有构建版本和当前日志入口仍为 2.0.1，本轮未打包或发布。
+
+## 2026-11-19 续：本地适配直接进入与西南大学微查
+
+- 本地自用适配点击整行直接进入教务浏览器。行尾「更多」继续提供编辑和删除。GitHub Release Kotlin 编译通过，本轮未覆盖安装。
+- 从线上后端只读核对刚上传的西南大学脚本。记录编号 1，入口为新版办事大厅，上传时识别 18 门课，记录的 `adapter_id` 为空。校外请求办事大厅公开入口得到 HTTPS 302，未复跑登录后的真实课表。
+- 以该上传脚本为基线，限制微查逐周请求并发，校验学期、周次、开课日期和作息，登录失效或数据不一致时停止导入。用户要求移除兼容路径后，拾光保留 `SWU_01`，脚本与共用 AI 仓库版本一致，只通过新版办事大厅微查取数。两份脚本的语法与模拟回归通过，拾光索引重新构建通过。
+- 对照拾光仓库 Bridge 声明，两份脚本增加节次从 1 连续编号和时间段不重叠的校验。拾光适配说明明确新版办事大厅、微查课表和无需校园网或 VPN。元数据 Schema、索引构建和新增模拟场景均通过，尚未在拾光客户端用真实账号复验。
+- 用户要求用 Codex 内置浏览器确认办事大厅首页登录后能否直接取课。验证停在西南大学 OAuth 授权页白屏，重试后仍未回到已登录首页，未能完成对照，适配说明仍引导打开微查课表。
+- 用户最后明确只发布到共用 AI 教务仓库。`HaoZai000/edu-ai-dock` 的 `main` 已收到 `2ccad80`，GitHub Actions 已生成含 SWU 的线上索引，回读的脚本与本地验证版一致。维护者为「SleepDown课程表AI」，旧上传缺少标识，因此为 AI 仓库登记了固定的新 ID，未做旧本地记录的同 ID 迁移。
+- Edge 已通过现有会话打开融合门户，用户随后停止浏览器验证，未确认首页是否能直取。拾光的 PR 文案和补丁保存在 `tmp/swu-microcheck-20261119/`，没有提交上游。
+
+## 2026-11-19 续：额度圆环锥光贴合圆弧
+
+- 回读 PLJ110 最新 AI 设置截图，余额 3 次的黄环右下方出现三角形外溢。曾将横向 COUI `ConicLightShader` 的矩形绘制区切向旋转后贴在圆环端部，光沿直线展开，矩形裁剪边可见。
+- 核对 COUI 原横向渲染器后，圆环改为按像素到进度头的角距及径向距离采样同一个锥光着色器，再软衰减。进度头的内侧亮边收窄，保留 COUI 的透明白渐变及圆头。横向绘制继续走既有坐标和混合方式。
+- `ConicGlowProgressRingTest` 在 Android 35 的原生图形回归中通过，验证 60% 圆环弧侧有光、缺口侧与外圈测试点无额外溢光。`compileGithubReleaseKotlin` 和 `git diff --check` 通过。
+- 用户要求安装后，完整 `assembleGithubRelease` 通过（3m34s），APK v2 签名通过。通过 SDK ADB 37.0.1 客户端连接现有 OPPO Connect ADB 服务（5037 USB），覆盖安装到 PLJ110（`3B15AE023YL00000`，Android 17 / API 37），返回 Success。设备 APK 哈希与本机 `281D57DA3D8C25F6544C95462C1BB2C77DA0292FEFBB54364281BA6FD03656B6` 一致，确认版本 2.0.1 / 37。保留应用数据，未主动启动，真机视觉待复验。
+
+## 2026-11-19 续：教务脚本保存与仓库接管、额度圆环
+
+- 用户要求手动「保存并上传」使用 COUI Kit 单输入弹窗，预填 AI 核实的学校全称，只展示名称及提交说明。用户随后明确在创建或覆盖课表成功后自动保存并上传相应的已验证脚本，缺少可靠校名时自动使用教务域名。
+- 本机适配维护者为「SleepDown课程表AI」。上传沿用现网脚本接口，审核备注携带维护者及稳定的 `SLEEPDOWN_AI_<uuid>`。发布到共用 `edu-ai-dock` 时复用该值作为 `adapter_id`。同步到唯一同 ID 条目后使用仓库版，已有自动刷新入口可按原绑定解析；本机副本供仓库脚本获取失败时回退。已验证的同轮脚本共用提交状态，避免手动和自动路径并发重复上传。
+- 回读了 PLJ110 的 AI 设置截图。剩余 3 次的导入额度圆环高光集中于弧端，调整为更宽、更亮的渐变尾迹，并加强 COUI 光效。满额圆环仍为纯色。
+- 用户要求导入流式更新在底部跟随。列表到达底部后跟随内容增长，手动向历史内容滚动会暂停，回到实际底部后恢复。
+- 6 组共 33 项 Android 回归全部通过，覆盖 COUI 名称输入、单独保存上传、上传失败重试、同 ID 仓库接管及底部跟随。完整 `assembleGithubRelease` 通过，已验 v2 签名，APK SHA-256 `12E5B4F4BC384F139CC53F3653990CA55710501F98AAF777C78AA72FB84FD265`。本次验证使用隔离测试数据。
+- 用户要求安装后，使用 Android SDK ADB 37.0.1 客户端通过现有 OPPO Connect 服务（5037 USB）覆盖安装至 PLJ110（`3B15AE023YL00000`，Android 17 / API 37）。安装返回 Success，设备 `base.apk` 哈希一致，核对版本 2.0.1 / 37。应用数据保留，未主动启动，圆环显示与正式上传待实机验收。
+
+## 2026-11-19 续：重构 AI 教务导入主流程
+
+- 用户要求按 Nexio 重构导入主流程，保留共享 Harness、缓存命中和 compact。仍基于本地 `codex/free-ai-nexio-2.0.1`，参考 Nexio `24632cb8`。查看了 PLJ110 最新截图，记录显示模型在完整脚本与最小 Bridge 探测之间反复执行。
+- 网页分析使用独立提示词和单一 `RUN_SCRIPT`。用已登录文档内的试跑 Bridge 收集数据，保留拾光本地校验、原始作息和组合作息；读取页面合并为一次 WebView 取数，试跑最多四个版本。原适配流程保留原生交互，桥接口在 WebView 首次加载前注册，实际执行才安装 JS 门面并使用执行令牌。
+- 创建或覆盖课表成功后，首页对与预览绑定的生成脚本发出确认。用户确认后由客户端后台上传，并显示接收结果。移除本机 AI 脚本记录页，保留已有本机记录和自用适配，给共用仓库的适配加「AI 生成」标记，保留仓库源 Popup。导入流式更新不再主动滚动列表。
+- 后端 Go 定向集成测试通过，覆盖上传写入、编号回执、管理端读取和合法转义体积。通过阿里云只读核对确认生产存在脚本表，查询时为 0 条，线上上传入口对无效请求返回 HTTP 400。生产未做有效载荷写入测试，未部署后端。
+- Android 11 组定向测试共 73 项全部通过。合成本机 HTTP 夹具验证同一脚本经正式适配和 AI 试跑均读到 2 门课、4 节作息和 18 周。拾光执行及 DevTools 的 6 项 Node 检查通过。完整 `assembleGithubRelease` 通过，APK 版本 2.0.1 / 37，大小 10,037,890 字节，SHA-256 `BC9153688856841A1317EA401126CCC97806177FE90EBEB66FC5CB6180AD99E3`，已验证 v2 签名。
+- 用户要求安装后，项目 SDK 的 5038 通道没有设备或 mDNS 端点。使用 SDK ADB 37.0.1 客户端通过现有 OPPO Connect ADB 服务（5037 USB）覆盖安装至 PLJ110（`3B15AE023YL00000`，Android 17 / API 37），安装返回 Success，设备 `base.apk` 哈希与本机一致，版本 2.0.1 / 37。保留应用数据，未主动启动。真实学校导入及成功上传待实机验收。
+
+## 2026-11-19 续：教务 AI 主流程、上传确认与今日助理上下文
+
+- 延续 `codex/free-ai-nexio-2.0.1` 的本地未提交改动。Nexio 对照基线为 `24632cb825e24e0ac47bfda80a8f4bb175342dd4`，主工具和分析终止条件按该版本对照。
+- 教务分析与今日助理共用 `AgentHarness` 的执行、取消和工具结算，并共用 `AgentContextPolicy`。今日助理加载当前课表和当天所有已完成问答，保留文字原文长度。教务改用五个直接工具，首屏请求按 WebView 隔离并只提供当前同源记录。受控刷新允许重新绑定同一文档。验证脚本成功后将已校验草稿直接送入预览，跳过额外模型回合。保留服务端用量统计、缓存命中与工具记录压缩。
+- 导入验证脚本对应的课表时，可查看源码并选择「上传并导入」或「仅导入」。选校页仓库源改为 Popup，脚本记录使用独立二级页。导入对话手动滚动后停止跟随。额度环从首次消耗开始使用收敛的 COUI 追光。
+- 私有后端上传及后台回读集成测试通过，额外覆盖 JSON 转义体积超过旧请求上限但解码后合法的脚本。真实线上 POST 收到无效 JSON 后返回 `400 INVALID_REQUEST`，没有写入测试记录。后端本地调整尚未部署。
+- Android 九组定向单测共 78 项全部通过，`compileGithubReleaseKotlin` 通过，单 worker 同轮构建 5m08s。`git diff --check` 通过。独立脚本记录器夹具验证首屏记录、同源过滤、认证请求跳过和脱敏。
+- 用户随后要求安装。完整签名 `assembleGithubRelease` 通过（单 worker，2m34s，含 R8、资源压缩和 lintVital）。`app/build/outputs/apk/github/release/app-github-release.apk` 为 10,037,890 字节，SHA-256 `D00A06408D6C58715324C5D4F80EF7E51C33D956E8D83F4AEF1EDD12A749E005`。使用 Android SDK 的 ADB 5038 USB 通道覆盖安装至 PLJ110（Android 17），安装后 APK 哈希一致，版本 2.0.1 / 37，应用数据保留。未主动启动，界面和真实教务流程待验收。
+
+## 2026-11-18 续：手动教务导入与自动刷新隔离 WebView 会话
+
+- 当前分支 `codex/free-ai-nexio-2.0.1`，基于 `77782ad9`，沿用已有未提交改动。本次用户要求通用认证修复，并授权在 PLJ110 上并排安装验证包、覆盖安装正式签名修复包。
+- PLJ110（Android 17，Google WebView 157.0.8103.38）实测：SleepDown 手机版和电脑版从官网进入同一办事大厅，均停在 CAS 的 OAuth 回调。日志显示跳转与登录 POST 由 WebView 原生完成，未走兼容转发，失败会话中出现同名 Cookie。用户在同机 Nexio 和 Edge 走同一大厅入口正常；独立包名的空白 WebView 也经相同回调返回大厅。证据把问题收窄到 SleepDown 已有浏览会话，无法追溯首次污染来自历史网址恢复还是自动刷新之前的会话写入。未观察到复现期间自动刷新 Worker 正在执行的日志。
+- 普通教务导入和 AI 教务导入启用独立持久 WebView profile（提供方支持 `MULTI_PROFILE` 时），弹窗、资源兼容转发、拾光请求和下载沿用当前 WebView 的 CookieManager。自动刷新绑定与恢复仍走原 profile。网址历史继续读取已有记录，仅保存网址并由 WebView 管理登录态，不再回填缺少 Domain/Path 等属性的旧 Cookie。升级后首次手动导入需重新登录。旧提供方沿用默认 profile。
+- 临时包 `com.xiaomanjun.sleepdownschedule.educheck` 的验证文件在忽略目录 `tmp/edu-session-probe/`。已更新 WebView 容器避让系统栏，并由用户确认验证包登入大厅。既有授权只涉及本次手机验收，未授权发布。
+- 正式签名修复包 `assembleGithubRelease` 通过（单 worker，6m43s，含 R8、资源压缩及 lintVital），产物 `app/build/outputs/apk/github/release/app-github-release.apk`，10,037,890 字节，SHA-256 `32771A67A0CAEDF9440610B083DA37846503A26832337D8037E477930CBEA77E`。SDK ADB 5038 USB 通道覆盖安装到 PLJ110 成功，设备端 APK 哈希一致，仍为 2.0.1 / 37。
+- 修复版在同机同入口复测通过。原先成对出现的 CAS、身份认证会话 Cookie 在新会话中各只有一份，CAS 回调后进入办事大厅主页，用户确认“修好了”。实机核对覆盖 AI 教务导入的登录到大厅，未运行自动刷新任务或保存课程。
+- `testGithubDebugUnitTest` 单 worker 通过（3m54s）。拦截器、资源策略、WebView 设置、URL、自动刷新入口和下载合计 31 项，0 失败、0 跳过。`git diff --check` 通过。
+
+## 2026-11-18 早期调查：教务“未认证授权的服务”
+
+设备日志与页面显示错误发生在统一认证的 `callbackAuthorize`。早期根据票据中的 service 推测新版大厅 OAuth 配置有误。上方空白 WebView 的同路径成功对照推翻了该判断。HTTP 412 只对应受浏览器原生处理的站点挑战。
+
+Nexio 的西南大学**适配器**入口来自拾光仓库，`import_url = https://i.swu.edu.cn/`（旧办事大厅），脚本引导进入 `jw.swu.edu.cn` 教务系统；其 AI 导入还会预填上次 URL 并在打开前匹配本地适配器，因此实际进入的地址可能不是 `swu.edu.cn` 首页。本轮 SleepDown 是从 `swu.edu.cn` 首页点击了新的 `ywtb` 办事大厅，走的是另一条未注册的 OAuth 链路。若 Nexio 的 AI 导入确实从同一 `ywtb` 入口进入仍正常，需要对比两边实际 URL、Cookie 与请求头后再下结论。直接访问 `https://jw.swu.edu.cn/sso/zllogin` 时 CAS service 为 `https://jw.swu.edu.cn/sso/zllogin`，登录页正常（curl 已验证 302 与登录页）。
+
+进一步核对 SleepDown 日志：`cas/login?[service,originalRequestUrl]` 到 `callbackAuthorize?[ticket]` 仅约 88 ms，期间没有任何登录输入，说明走的是已有 `CASTGC` 的静默 SSO；Nexio/Edge 若为交互式登录，门户可能下发不同的 service。优先验证在 SleepDown 打开 `https://uaaap.swu.edu.cn/cas/logout` 清除 CAS 会话后重新登录 `ywtb`，再比较 `callbackAuthorize` ticket 尾段 service。
+
+用户实测退出 CAS 后重新登录仍报错，静默 SSO/旧会话假设已排除。下一个可验证差异是 UA/视口：Nexio 的 `WebViewScreen` 在 `screenWidthDp >= 600`（横屏、平板、分屏、折叠屏）会默认 `isDesktopMode=true`，而 SleepDown 本次日志明确 `desktop=false`、`uaWv=true`。需要在 SleepDown 先切“电脑版”再重走 `swu.edu.cn -> 办事大厅`；若仍失败，再对比两边的 UA、`X-Requested-With`、`Sec-CH-UA` 与 `ywtb` Cookie。
+
+按用户要求未加入任何按学校写死的回退补丁；仅保留通用诊断日志（主框架 UA/Referer/Sec-Fetch、子资源 XRW、412 响应头、`REQUESTED_WITH_HEADER_ALLOW_LIST` 能力检测）。`assembleGithubRelease` 通过；设备构建期间断开，安装未执行。
+
+## 2026-11-18 教务导入 / AI 教务导入全链路对照 Nexio 排查与通用认证修复
+
+按用户要求对照 Nexio（`tmp/nexio-ref`）逐层排查教务导入与 AI 教务导入全链路，修复进入部分教务系统时出现的“未经授权的服务 / 未经授权的访问”及 AI 导入首屏抓包/SPA 入口遗漏，并彻底移除导入链路中的单校特化逻辑（含 SWU 相关注释/用例与 `ShiguangScriptHotfixes` 单校脚本覆写）。
+
+- **全链路与 Nexio 对照结论及根因**：
+  1. **OkHttp / `redirectStub` 误接管主框架导航与协议判定过窄**：当设备 WebView 已通过 `REQUESTED_WITH_HEADER_ALLOW_LIST` 原生剥离 `X-Requested-With` 时，`WebCompatDelegate.onHttpError`/`onConsoleMessage` 仍因静态资源 4xx/5xx 或缺脚本报错触发 `recoverResources()` -> `webView.reload()` 并启用 `EduWebResourcePolicy`，将主框架 GET 与跳转交给默认证书信任、无 `onReceivedSslError` 放行的 `OkHttpClient` 和 `200` JS 跳转桩页；且旧 `eduWebIsTransientAuthUrl` 仅覆盖少数路径，遗漏 `/lyuapServer/`、`/cas/?service=`、`/tpass/`、`/esc-sso/`、`/ucas-sso/`、`/passport/.../auth`、WebVPN/aTrust 登录路径、`/#/authserver/login` 等 hash 路由及 `service=`/`redirect_uri=`/OAuth `/callback?code=`，导致认证页被重载或 302 桩页替换后丢失 Referer/异步 Cookie 时序，引起 CAS/IDS 报“未经授权的服务 / 未经授权的访问”。
+  2. **登录历史保存与 Cookie 覆盖**：`EduLoginHistoryStore` 原先将部分未识别的 SSO 页与 HTTP 200 报错页（如 CAS“未经授权的服务”）写入历史；点选历史时 `restoreCookies` 不分青红皂白以异步 `setCookie(..., Path=/; Secure)` 覆盖并把父域名 Cookie 降级为 host-only，破坏活跃会话。
+  3. **地址规范化误杀 `host:port` 与本地保存丢失 SPA `#/` 路由**：[EduWebSecurity.kt](app/src/main/java/com/xiaomanjun/sleepdownschedule/feature/importing/EduWebSecurity.kt) `ExplicitUriScheme` 允许 `.`，把无协议头的 `host:port`（如 `jw.example.edu:8080/jsxsd`）误判为自定义 scheme 返回空串；[AiEduScriptSaving.kt](app/src/main/java/com/xiaomanjun/sleepdownschedule/feature/importing/AiEduScriptSaving.kt) `cleanLocalEduLoginUrl` 会丢弃 `#/...` SPA 路由。
+  4. **AI 教务导入未在 `document-start` 注册网络记录器**：[EduImportBrowserUi.kt](app/src/main/java/com/xiaomanjun/sleepdownschedule/feature/importing/EduImportBrowserUi.kt) 声明了 `netRecorderHandlers` 却未调用 `WebViewCompat.addDocumentStartJavaScript`，导致 AI 教务导入首屏 `fetch`/`XHR`/表单请求捕获为空，与 `EduImportEvidence` 提示不符且容易迫使模型调用 `RELOAD_PAGE` 破坏认证状态。
+  5. **单校特化清理**：移除教务导入中的单校脚本热修复机制（[ShiguangScriptHotfixes.kt](app/src/main/java/com/xiaomanjun/sleepdownschedule/feature/importing/shiguang/ShiguangScriptHotfixes.kt)、`shiguang_script_hotfixes.json`、`ShiguangScriptHotfixesTest.kt` 及 [EduImport.kt](app/src/main/java/com/xiaomanjun/sleepdownschedule/feature/importing/EduImport.kt) 调用）以及拦截器/兼容代理/单测中的单校域名示例，全部规则保持纯协议级通用。
+- **核心修改**：
+  - [EduWebSecurity.kt](app/src/main/java/com/xiaomanjun/sleepdownschedule/feature/importing/EduWebSecurity.kt)：`normalizeEduUrl` 区分合法 `host:port`（含域名/IPv4/`localhost`/方括号 IPv6）与非 HTTP(S) 协议头（仍拦截 `javascript:`/`file:`/`tel:`/`intent:` 等）；`configureEduImportSecurity()` 返回是否已成功启用原生 `REQUESTED_WITH_HEADER_ALLOW_LIST` 剥离。
+  - [WebCompatDelegate.kt](app/src/main/java/com/xiaomanjun/sleepdownschedule/feature/importing/WebCompatDelegate.kt)：接收 `nativeRequestedWithStripped`，当 Chromium 已原生剥离 `X-Requested-With` 时跳过 `recoverResources()`，由 Chromium 原生处理重定向、证书容错与 Cookie；并阻止 `shouldReloadEntryOnDesktopToggle` 回退至自身携带一次性凭据的入口。
+  - [EduWebResourceInterceptor.kt](app/src/main/java/com/xiaomanjun/sleepdownschedule/feature/importing/EduWebResourceInterceptor.kt)：拆分协议通用的 `eduWebHasOneTimeToken` 与 `eduWebIsTransientAuthUrl`（涵盖 CAS/IDS/OAuth2/OIDC/SAML/IAM/WebVPN/aTrust 常见路径、授权域名及 SPA hash 路由）；后备拦截路径补充 `Set-Cookie` 异步落盘等待（非主线程 `CountDownLatch`）、空 `User-Agent` 保护及 `JSONObject.quote` 转义 `redirectStub`。
+  - [EduLoginHistoryStore.kt](app/src/main/java/com/xiaomanjun/sleepdownschedule/feature/importing/EduLoginHistoryStore.kt)：新增 `shouldRememberPage` 拦截未授权/HTTP 错误标题页；`restoreCookies` 仅在目标地址与站点根路径均无活跃 Cookie 时才兜底回填，避免覆盖或降级现存会话 Cookie。
+  - [EduImportBrowserUi.kt](app/src/main/java/com/xiaomanjun/sleepdownschedule/feature/importing/EduImportBrowserUi.kt)、[AiEduScriptSaving.kt](app/src/main/java/com/xiaomanjun/sleepdownschedule/feature/importing/AiEduScriptSaving.kt)、[EduImport.kt](app/src/main/java/com/xiaomanjun/sleepdownschedule/feature/importing/EduImport.kt)：AI 教务导入模式对齐 Nexio 于 `document-start` 注册 `EduNetRecorderJs` 与 `_sleepdownNetBridge`（普通适配在转入 AI 导入时再按需注册，保留认证期纯净环境）；渲染器异常恢复避开一次性回调 URL；`cleanLocalEduLoginUrl` 保留 `#/...` SPA 路由。
+- **验证与状态**：
+  - 本地未提交、未推送（未做校园网真机账号实登复验）。`testGithubDebugUnitTest` 13 组教务与 AI 导入定向单测（57 项）全部通过（0 失败 / 0 跳过）；`compileGithubReleaseKotlin` 与完整签名 `assembleGithubRelease`（含资源压缩、R8、lintVital；`app/build/outputs/apk/github/release/app-github-release.apk`，`10,037,890` 字节，SHA-256 `5A6A8097A208A3231FB727EEDA3BE9443C8C0B7F11691B6996EDCA4671066EB7`）均通过，并经 Android SDK ADB `37.0.1`（`5038` USB 通道，服务端路径 `D:\Android studio\AndroidSDK\platform-tools\adb.exe`）覆盖安装至 `PLJ110`（`3B15AE023YL00000`，Android 17／API 37），设备 `base.apk` SHA-256 回读一致，`versionCode=37`／`2.0.1`，保留应用数据，未主动启动。`feature/schedule/autorefresh/` 为既有后台自动刷新模块（含 Manifest 声明的 `SwuUnifiedAuthActivity`），属教务导入范围之外的已发布组件，本轮保持未动。
+
+## 2026-11-17 当前：2.0.1 免费 AI 额度限制与 Nexio 教务导入链路对齐
+
+以昨晚发布的 `2.0.1 (37)`（`origin/main` `77782ad9`）为基线派生分支 `codex/free-ai-nexio-2.0.1`（原 `codex/couikit-dialog` 未提交工作树已备份至 git stash `wip: codex/couikit-dialog pre-2.0.1-port`），保留 `2.0.1` 已有长链路教务导入压缩、COUI 教务字母快滚及发光进度条实现。当前改动均在本地工作树，未自动提交、推送、打包安装或发布；`SleepDown-Server/` 与 `tmp/` 保持未暂存、未跟踪。
+
+- **后端每日免费 AI 额度与极简公网流量**（`SleepDown-Server/`，不进 Git）：
+  - 新增迁移 `011_ai_quota.sql` 与 `012_edu_scripts.sql`，基于 `installationId` 与 `Asia/Shanghai` 自然日分别限制每日每用户免费 AI 助手对话次数（默认 20）与 AI 导入可用次数（默认 5），支持 `-1` 不限次、`0` 暂停。
+  - `GET /api/v1/bootstrap` 顺带下发 `aiQuota` 策略与当日余额（沿用 `ETag` / `304`）；客户端发起免费 AI 请求前调用 `POST /api/v1/ai/quota/consume`（携带 `actionId` 幂等去重，单轮对话多步工具调用或单次导入含最多 3 次 Repair 与线路 failover 只计 1 次；超额直接返回 `429 AI_QUOTA_EXCEEDED` 与 `X-SleepDown-Quota-*` 轻量头，阻断上游 LLM 请求），`GET /api/v1/ai/quota` 仅在设置页按需刷新。
+  - 支持环境变量（`SLEEPDOWN_AI_CHAT_DAILY_LIMIT` / `SLEEPDOWN_AI_IMPORT_DAILY_LIMIT`）与管理后台「模型与 API Key → 每日额度」（`GET|PUT /admin/api/ai-quota`）实时零重启调整；新增 `POST /api/v1/edu-scripts` 与管理台查看/删除接口。
+- **客户端免费 AI 额度与圆形流光环**：
+  - 新增 `data/ai/FreeAiQuotaModels.kt`、`FreeAiQuotaStore.kt`、`FreeAiQuotaClient.kt`、`FreeAiQuotaGate.kt`，并在 `AiImportTaskManager.kt` 全链路（文件、多文件、文本、抓取页、修订及暂停恢复）透传 `quotaActionId`。`FreeAiQuotaClient` 额外通过应用签名作用域 `Settings.Secure.ANDROID_ID` 的单向 SHA-256 推导固定 UUID 作为每日免费 AI 额度标识（仅当系统返回值无效时回退 `installationId`），防止清除数据或卸载重装绕过每日额度，并同步更新 [LegalAndDonationUi.kt](app/src/main/java/com/xiaomanjun/sleepdownschedule/feature/settings/LegalAndDonationUi.kt) 隐私说明；`InstallationAnalytics` 仍保留随机安装标识。用户自备 Key 与 ChatGPT OAuth 零调用。
+  - AI 导入扣次逻辑：发起前由 `FreeAiQuotaGate.ensureAvailableIfManagedFree` 做只读预检（0 余量拦截但不扣次）；AI 教务导入仅在 `AiEduWorkspace` 完成一次脚本生成并通过本地校验（`RUN_SCRIPT` 成功）或 `AiImportTaskManager.runTask` 生成并校验通过完整课表后按 `quotaActionId` 幂等扣 1 次（失败、取消或追问不扣）。
+  - 在 `ConicGlowProgressBar.kt` 新增 `ConicGlowProgressRing`（`42.dp` 直径、`4.dp` 描边，满额纯绿无缝圆环不发拖尾光，消耗后自 12 点顺时针退让露出底层轨道、保留圆角端头与绿→黄→红颜色过渡，消耗后在退让端头显示较短窄 `8°..24°` × `0.5×` 描边拖尾光，并放大居中余量数字至 `15.sp`/`12.sp`）及重构 `SettingsConicQuotaRow`（左侧两行标题/摘要 + 右侧居中数字圆环）；[AiImportSettingsScreen.kt](app/src/main/java/com/xiaomanjun/sleepdownschedule/feature/settings/AiImportSettingsScreen.kt) 保留完整额度显示与刷新，移除 [DayAgentConversationDialog.kt](app/src/main/java/com/xiaomanjun/sleepdownschedule/feature/agent/DayAgentConversationDialog.kt)、[AiEduImportProgressUi.kt](app/src/main/java/com/xiaomanjun/sleepdownschedule/feature/importing/progress/AiEduImportProgressUi.kt) 与首页卡片常驻余量展示（仅在耗尽或暂停时引导配置 Key）。
+- **Nexio AI 教务导入对齐、双仓库源与脚本上传**：
+  - 引入 `EduNetRecorderJS`（`document-start` Hook `fetch` / `XHR` / `submit` 并脱敏）与环形缓冲 `EduNetLogStore`；`AiEduWorkspace` 对齐 `NET_LOG`、`RELOAD_PAGE`、增强 `READ_PAGE`、`REQUEST`、`RUN_SCRIPT`（作息门禁、最多 6 次、沙箱 `shiguangBridge` 校验、纯文本提问兜底），保留 `AI -> ImportDraft -> 本地校验 -> Preview -> 用户确认 -> 数据库` 与 `2.0.1` 长链路压缩。
+  - 新增 `AiDockWarehouseUpdater` 并扩展 `ShiguangWarehouseUpdater`、`EduImport`、`LocalEduAdapters` 与 `EduSchoolSelectionUi`，接入「拾光仓库 + `edu-ai-dock` AI 脚本库」双仓库源、Gitee/GitHub 切换及 `AiEduScriptStore` 脚本记录；确认导入且存在本轮验证通过的 AI 教务脚本时，弹出 COUI 学校名称确认框并后台静默上传至 `POST /api/v1/edu-scripts`。
+- **WebView 兼容修复**：[ShiguangWebRuntime.kt](app/src/main/java/com/xiaomanjun/sleepdownschedule/feature/importing/shiguang/ShiguangWebRuntime.kt) 对齐 Nexio 默认关闭 `ShiguangPostInterceptScript`（`postForwardEnabled = false`），避免桌面模式下捕获阶段 `submit` 监听和 `X-WebView-Post-Id` 请求头干扰通用站点/WAF/SSO 表单加密与原生 POST 重定向；[EduWebResourceInterceptor.kt](app/src/main/java/com/xiaomanjun/sleepdownschedule/feature/importing/EduWebResourceInterceptor.kt) 在 `300..399` 跳转返回前先同步 `Set-Cookie` 并 `flush()`；[EduWebSecurity.kt](app/src/main/java/com/xiaomanjun/sleepdownschedule/feature/importing/EduWebSecurity.kt) 放开与 Nexio 一致的 `allowFileAccess`/`allowContentAccess` 并在支持 `REQUESTED_WITH_HEADER_ALLOW_LIST` 时原生剥离 `X-Requested-With`；[ShiguangPostTransport.kt](app/src/main/java/com/xiaomanjun/sleepdownschedule/feature/importing/shiguang/ShiguangPostTransport.kt) 转发开启时保留合法的 `X-Requested-With: XMLHttpRequest`；[WebCompatDelegate.kt](app/src/main/java/com/xiaomanjun/sleepdownschedule/feature/importing/WebCompatDelegate.kt) 跳过 `404` 静态资源，并通过 `shouldReloadEntryOnDesktopToggle` 仅在处于瞬时认证或移动端域名时切换电脑版退回原入口域（保留已登录教学页导航）；[EduImportBrowserUi.kt](app/src/main/java/com/xiaomanjun/sleepdownschedule/feature/importing/EduImportBrowserUi.kt) 允许 `about`/`javascript`/`data`/`blob` 内部协议原生加载、地址栏输入/历史条目同步更新 `WebCompatDelegate` 入口、`onPageStarted` 实时刷新地址栏、过滤 HTTP 4xx/5xx 与失败页写入登录历史、单窗口承接跳转、静默瑞数 `412` 首跳并对齐 `onReceivedSslError`；[EduLoginHistoryStore.kt](app/src/main/java/com/xiaomanjun/sleepdownschedule/feature/importing/EduLoginHistoryStore.kt) 在 `load()` 与 `remember()` 双端过滤 CAS/OAuth 瞬时认证 URL 并保留 Cookie 原路径作用域。
+- **验证**：`SleepDown-Server` `go vet ./...` 与 `go test ./...`（Go 1.27.3，6 个测试包全通过）、`web/admin` `npm run typecheck` 通过；已通过阿里云 CLI 部署至生产（`sleepdown-platform-20261117-162621-024a98`，二进制 SHA-256 `629bbe0c831ce77119ea65dac76bea9074a1f81ed6c9ed0964994c94ab1bc326`，数据库 schema 升级至 `12`，公网 `readyz`、`bootstrap.aiQuota`、`GET /api/v1/ai/quota` 回读通过）。Android 9 组定向单测（含新增 `WebCompatDelegateTest.desktopToggleOnlyReturnsToEntryFromTransientAuthOrMobileHosts`）共 52 项全部通过（0 失败 / 0 跳过）；最新 `assembleGithubRelease`（含 R8、资源压缩、lintVital、V2 签名，10,038,160 字节，SHA-256 `01ED84DE48059C349FAA7567778FC5210C6DE809A44D8AAC67FB9D088D080AF9`）已通过 `Invoke-Adb.ps1`（`5038`，SDK ADB `37.0.1`）覆盖安装至后台 `Pixel_10_Pro` 模拟器（`emulator-5554`，复检 AI 设置圆形额度环与 `AI教务导入` 链路）及物理真机 `PLJ110`（`3B15AE023YL00000`，Android 17／API 37，设备 `base.apk` SHA-256 回读一致，`versionCode=37`／`2.0.1`，保留应用数据，未主动启动；未提交或推送 Git 远端）。
+
 ## 2026-11-14 2.0 正式发布
 
 用户确认以 `codex/v2-onboarding-2.0` 当前成果正式发布 `v2.0`，开启 GitHub 包的 SharedViewKit 金标门控，并在发版时同步 `main`、处理上下游相关 PR。合入前 `origin/main` 为 `3792fdba`。应用版本 2.0／36，课程组件沿用 6.0.19／259。
