@@ -144,6 +144,27 @@ class AutoRefreshReviewUiTest {
         compose.onNodeWithText("确认").assertIsDisplayed()
     }
 
+    @Test fun customTimeChangeIsShownEvenWithAnUnchangedBellSnapshot() {
+        val before = pending.before.first().copy(
+            periods = listOf(1), periodTimes = null, originalTimes = "1,08:00-08:45",
+            start = "09:00", end = "09:45",
+        )
+        compose.runOnIdle {
+            AutoRefreshReviewStore.save(compose.activity, pending.copy(
+                before = listOf(before),
+                after = listOf(before.copy(id = 0, start = "09:15", end = "10:00")),
+                beforeTerm = pending.afterTerm,
+            ))
+        }
+
+        val list = compose.onNode(hasScrollToIndexAction())
+        list.performScrollToNode(hasText("09:00–09:45"))
+        compose.onNodeWithText("09:00–09:45").assertExists()
+        list.performScrollToNode(hasText("09:15–10:00"))
+        compose.onNodeWithText("09:15–10:00").assertExists()
+        compose.onNodeWithText("第1节 08:00–08:45").assertDoesNotExist()
+    }
+
     @Test fun removalDisplaysTheOriginalCourseAndOnlyMarksItsRemoval() {
         val list = compose.onNode(hasScrollToIndexAction())
         list.performScrollToNode(hasText("303"))
