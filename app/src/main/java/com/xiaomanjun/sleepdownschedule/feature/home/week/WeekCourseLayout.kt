@@ -89,9 +89,14 @@ import com.xiaomanjun.sleepdownschedule.feature.home.overlay.CourseCopyPhase
 import com.xiaomanjun.sleepdownschedule.feature.home.overlay.CourseCopyPlaceholder
 import com.xiaomanjun.sleepdownschedule.feature.home.overlay.CourseCopyTap
 import com.xiaomanjun.sleepdownschedule.feature.home.overlay.LocalCourseCopy
+import com.xiaomanjun.sleepdownschedule.feature.home.overlay.LocalCourseOverlapPreview
 import com.xiaomanjun.sleepdownschedule.feature.home.overlay.LocalCourseRemoval
+import com.xiaomanjun.sleepdownschedule.feature.home.overlay.ScheduleOverlapEntry
+import com.xiaomanjun.sleepdownschedule.feature.home.overlay.ScheduleOverlapSlot
 import com.xiaomanjun.sleepdownschedule.feature.home.overlay.courseCopyGridTap
 import com.xiaomanjun.sleepdownschedule.feature.home.overlay.courseShortcutPivot
+import com.xiaomanjun.sleepdownschedule.feature.home.overlay.layoutScheduleOverlapSlots
+import com.xiaomanjun.sleepdownschedule.feature.home.overlay.overlapEntryKey
 import com.xiaomanjun.sleepdownschedule.glass.GlassBackdropDomain
 import com.xiaomanjun.sleepdownschedule.glass.ui.CourseGlassCard
 import com.xiaomanjun.sleepdownschedule.glass.ui.GlassSurface
@@ -102,10 +107,22 @@ import com.xiaomanjun.sleepdownschedule.hasCustomTime
 import com.xiaomanjun.sleepdownschedule.scheduleWeekStartDate
 import kotlinx.coroutines.flow.map
 
+internal data class WeekOverlapSegmentMeta(
+    val key: String,
+    val course: CourseEntity,
+    val startSlot: Double,
+    val endSlot: Double,
+    val isTopInGrid: Boolean
+)
+
 internal data class WeekRenderedSegment(
     val groupIndex: Int,
     val group: WeekConflictGroup,
-    val segment: WeekCourseSegment
+    val segment: WeekCourseSegment,
+    val overlapKey: String = "",
+    val stackOrder: Int = 0,
+    val showOverlapBadge: Boolean = false,
+    val overlapGroup: List<WeekOverlapSegmentMeta> = emptyList()
 )
 
 internal const val WeekCustomTimeLabelGap = 1f
@@ -190,26 +207,145 @@ private fun weekReferenceSupplementaryTailKey(dayIndex: Int, courseId: Long, ind
     "$dayIndex:reference-supplementary:$courseId:$index"
 
 private fun renderedWeekSegments(
+    weekday: Int,
+    periods: List<PeriodEntity>,
     conflictGroups: List<WeekConflictGroup>,
     conflictFocusCourseId: Long?,
     conflictFocusCourseKey: String?
-): List<WeekRenderedSegment> = buildList {
+): List<WeekRenderedSegment> {
+    data class RawCandidate(
+        val key: String,
+        val groupIndex: Int,
+        val group: WeekConflictGroup,
+        val segment: WeekCourseSegment,
+        val startSlot: Double,
+        val endSlot: Double,
+        val slot: ScheduleOverlapSlot
+    )
+
+    val rawCandidates = mutableListOf<RawCandidate>()
+    var preferredTopKey: String? = null
+
     conflictGroups.forEachIndexed { groupIndex, group ->
-        val visibleCourse = group.courses.firstOrNull { it.id == conflictFocusCourseId }
-            ?: group.courses.firstOrNull {
-                conflictFocusCourseKey != null &&
-                    it.occurrenceOverrideKey() == conflictFocusCourseKey
+        val courseCount = group.courses.size
+        group.courses.forEachIndexed { courseIndex, course ->
+            val courseSegments = group.segments.filter { it.course.id == course.id }
+            val segments = if (course.hasCustomTime() && course.arrangementProjection == null) {
+                courseSegments.minByOrNull { it.startPosition }?.let(::listOf).orEmpty()
+            } else {
+                courseSegments
             }
-            ?: group.courses.first()
-        val visibleSegments = group.segments.filter { it.course.id == visibleCourse.id }
-        val segments = if (visibleCourse.hasCustomTime() && visibleCourse.arrangementProjection == null) {
-            visibleSegments.minByOrNull { it.startPosition }?.let(::listOf).orEmpty()
-        } else {
-            visibleSegments
+            val matchesFocus = course.id == conflictFocusCourseId ||
+                (conflictFocusCourseKey != null && course.occurrenceOverrideKey() == conflictFocusCourseKey)
+            segments.forEach { segment ->
+                val exact = exactTimeWeekPlacement(segment.course, periods)
+                val startSlot = exact?.topRows?.toDouble() ?: segment.startPosition.toDouble()
+                val endSlot = exact?.let { (it.topRows + it.heightRows).toDouble() }
+                    ?: (segment.endPosition + 1).toDouble()
+                val entryKey = overlapEntryKey(segment.course, weekday, startSlot, endSlot)
+                if (matchesFocus && preferredTopKey == null) {
+                    preferredTopKey = entryKey
+                }
+                rawCandidates += RawCandidate(
+                    key = entryKey,
+                    groupIndex = groupIndex,
+                    group = group,
+                    segment = segment,
+                    startSlot = startSlot,
+                    endSlot = endSlot,
+                    slot = ScheduleOverlapSlot(
+                        id = entryKey,
+                        weekday = weekday,
+                        start = startSlot,
+                        end = endSlot,
+                        stableOrder = courseCount - courseIndex
+                    )
+                )
+            }
         }
-        segments.forEach { segment ->
-            add(WeekRenderedSegment(groupIndex, group, segment))
+    }
+
+    if (rawCandidates.isEmpty()) return emptyList()
+    val candidateById = rawCandidates.associateBy { it.key }
+    val placements = layoutScheduleOverlapSlots(
+        slots = rawCandidates.map { it.slot },
+        preferredTopId = preferredTopKey
+    )
+    return placements.mapNotNull { placement ->
+        val candidate = candidateById[placement.slot.id] ?: return@mapNotNull null
+        val groupMetas = placement.overlapGroup.mapNotNull { groupSlot ->
+            val groupCandidate = candidateById[groupSlot.id] ?: return@mapNotNull null
+            WeekOverlapSegmentMeta(
+                key = groupSlot.id,
+                course = groupCandidate.segment.course,
+                startSlot = groupCandidate.startSlot,
+                endSlot = groupCandidate.endSlot,
+                isTopInGrid = groupSlot.id == placement.overlapGroup.lastOrNull()?.id
+            )
         }
+        WeekRenderedSegment(
+            groupIndex = candidate.groupIndex,
+            group = candidate.group,
+            segment = candidate.segment,
+            overlapKey = candidate.key,
+            stackOrder = placement.stackOrder,
+            showOverlapBadge = placement.showOverlapBadge,
+            overlapGroup = groupMetas
+        )
+    }
+}
+
+internal fun resolveLiveOverlapEntriesForDay(
+    courses: List<CourseEntity>,
+    periods: List<PeriodEntity>,
+    config: ScheduleConfigEntity,
+    week: Int,
+    weekday: Int,
+    anchorCourseIds: Set<Long>
+): List<ScheduleOverlapEntry> {
+    if (anchorCourseIds.isEmpty()) return emptyList()
+    val weekCourses = com.xiaomanjun.sleepdownschedule.feature.home.day.coursesVisibleInWeek(courses, week)
+    val dayCourses = weekCourses.flatMap { courseWeekDisplayFragments(it, periods) }.filter { it.weekday == weekday }
+    if (dayCourses.isEmpty()) return emptyList()
+    val periodIndexes = periods.map { it.periodIndex }
+    val segments = renderedWeekSegments(
+        weekday = weekday,
+        periods = periods,
+        conflictGroups = buildWeekConflictGroups(dayCourses, periodIndexes, periods),
+        conflictFocusCourseId = null,
+        conflictFocusCourseKey = null
+    )
+    val startDate = scheduleWeekStartDate(config, week)
+    val adjustment = com.xiaomanjun.sleepdownschedule.domain.schedule.scheduleAdjustmentForDate(
+        config,
+        startDate.plusDays(com.xiaomanjun.sleepdownschedule.domain.schedule.scheduleWeekdayOffset(config, weekday))
+    )
+    val editingAllowed = adjustment == null
+    val muted = adjustment != null && adjustment.sourceDate == null
+    val adjustmentLabel = if (!editingAllowed) if (muted) "停" else "补" else null
+    val adjustedDate = if (editingAllowed) null else adjustment?.let {
+        startDate.plusDays(com.xiaomanjun.sleepdownschedule.domain.schedule.scheduleWeekdayOffset(config, weekday))
+    }
+    val matchedGroup = segments
+        .filter { it.overlapGroup.any { meta -> meta.course.id in anchorCourseIds } }
+        .maxByOrNull { it.overlapGroup.size }
+        ?.overlapGroup
+        .orEmpty()
+    if (matchedGroup.size <= 1) return emptyList()
+    return matchedGroup.map { meta ->
+        ScheduleOverlapEntry(
+            key = meta.key,
+            course = meta.course,
+            weekday = weekday,
+            week = week,
+            startSlot = meta.startSlot,
+            endSlot = meta.endSlot,
+            editingAllowed = editingAllowed,
+            muted = muted,
+            adjustmentLabel = adjustmentLabel,
+            adjustedOccurrenceDate = adjustedDate,
+            isTopInGrid = meta.isTopInGrid
+        )
     }
 }
 
@@ -307,19 +443,33 @@ private fun WeekDayColumn(
             val group = rendered.group
             val segment = rendered.segment
             val glassCandidateId = weekGlassCandidateId(dayIndex, segment, groupIndex)
-            val underlyingSegment = group.segments
-                .asSequence()
-                .filter { it.course.id != segment.course.id }
-                .filter {
-                    it.startPosition <= segment.endPosition &&
-                        it.endPosition >= segment.startPosition
-                }
-                .sortedWith(
-                    compareBy<WeekCourseSegment> { it.startPosition }
-                        .thenBy { it.endPosition }
-                        .thenBy { it.course.id }
+            val overlapController = LocalCourseOverlapPreview.current
+            val hiddenByOverlap = overlapController?.hides(segment.course, dayIndex, editWeek) == true
+            val overlapAdjustmentLabel = if (!editingAllowed) if (muted) "停" else "补" else null
+            val overlapAdjustedDate = if (editingAllowed) null else
+                scheduleWeekStartDate(config, editWeek).plusDays(
+                    com.xiaomanjun.sleepdownschedule.domain.schedule.scheduleWeekdayOffset(config, dayIndex)
                 )
-                .firstOrNull()
+            val overlapEntries = remember(
+                rendered.overlapGroup, dayIndex, editWeek, editingAllowed, muted,
+                overlapAdjustmentLabel, overlapAdjustedDate
+            ) {
+                rendered.overlapGroup.map { meta ->
+                    ScheduleOverlapEntry(
+                        key = meta.key,
+                        course = meta.course,
+                        weekday = dayIndex,
+                        week = editWeek,
+                        startSlot = meta.startSlot,
+                        endSlot = meta.endSlot,
+                        editingAllowed = editingAllowed,
+                        muted = muted,
+                        adjustmentLabel = overlapAdjustmentLabel,
+                        adjustedOccurrenceDate = overlapAdjustedDate,
+                        isTopInGrid = meta.isTopInGrid
+                    )
+                }
+            }
             val bounds = visibleCardBounds[renderedIndex]
             val segmentTop = bounds.first.dp
             val segmentHeight = (bounds.second - bounds.first).dp
@@ -336,7 +486,10 @@ private fun WeekDayColumn(
                     )
                     // Keep the custom clock labels on the same moving surface as their card.
                     .homeSwitchGroup(tailCardOrder[glassCandidateId])
-                    .zIndex(if (LocalCourseRemoval.current?.matches(segment.course, editWeek) == true) 20f else groupIndex.toFloat())
+                    .zIndex(
+                        if (LocalCourseRemoval.current?.matches(segment.course, editWeek) == true) 20f
+                        else groupIndex.toFloat() + rendered.stackOrder * 0.01f
+                    )
             ) {
                 WeekCourseBlock(
                     course = segment.course,
@@ -359,14 +512,9 @@ private fun WeekDayColumn(
                     stackIndex = groupIndex,
                     cardOrderFraction = tailCardOrder[glassCandidateId],
                     columnOrderFraction = tailColumnFraction,
-                    conflictWarning = group.hasConflict,
-                    conflictUnderlyingCourse = underlyingSegment?.course,
-                    conflictUnderlyingPeriodIndex = underlyingSegment
-                        ?.let { periodIndexes[it.startPosition] },
-                    conflictUnderlyingSpan = underlyingSegment?.span ?: 0,
-                    onResolveConflict = { moved ->
-                        onResolveCourseConflict(segment.course, moved)
-                    },
+                    overlapEntries = overlapEntries,
+                    overlapEntryKey = rendered.overlapKey,
+                    showOverlapBadge = rendered.showOverlapBadge,
                     editingAllowed = editingAllowed,
                     muted = muted,
                     editMode = editMode,
@@ -388,7 +536,7 @@ private fun WeekDayColumn(
                     onFinishResizeOverlay = onFinishResizeOverlay,
                     onCancelWeekEditOverlay = onCancelWeekEditOverlay
                 )
-                segment.course.customTimeRangeOrNull()?.let { (start, end) ->
+                if (!hiddenByOverlap) segment.course.customTimeRangeOrNull()?.let { (start, end) ->
                     val labelColor = glassForegroundColor(config)
                     WeekCourseTimeLabel(
                                 text = start.toString(),
@@ -528,6 +676,8 @@ internal fun WeekCourseColumnsLayer(
     ) {
         weekdays.associateWith { day ->
             renderedWeekSegments(
+                weekday = day,
+                periods = periods,
                 conflictGroups = buildWeekConflictGroups(
                     coursesByWeekday[day].orEmpty(),
                     periodIndexes,

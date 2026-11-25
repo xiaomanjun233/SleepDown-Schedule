@@ -622,11 +622,6 @@ private data class PendingArrangementDelete(
 
 private data class DepartingArrangement(val index: Int, val draft: ManagedArrangementDraft)
 
-private data class PendingCourseManagementConflictSave(
-    val replacements: List<CourseEntity>,
-    val conflictWeeks: List<Int>
-)
-
 @Composable
 internal fun CourseManagementDetailPage(
     group: ManagedCourseGroup,
@@ -658,9 +653,6 @@ internal fun CourseManagementDetailPage(
         if (outgoing == null) arrangements else arrangements.toMutableList().apply {
             add(outgoing.index.coerceAtMost(size), outgoing.draft)
         }
-    }
-    var pendingConflictSave by remember(group.key) {
-        mutableStateOf<PendingCourseManagementConflictSave?>(null)
     }
     val listState = rememberLazyListState()
     val scope = rememberCoroutineScope()
@@ -729,25 +721,7 @@ internal fun CourseManagementDetailPage(
             return
         }
         val replacementsToSave = replacementsForSave()
-        if (replacementsToSave.isEmpty()) {
-            commit(replacementsToSave)
-            return
-        }
-        val conflictWeeks = conflictWeeksForEditedCourseGroup(
-            originals = state.previewCourseEdits(originalGroup.courses),
-            edited = state.previewCourseEdits(replacementsToSave),
-            courses = state.courses,
-            periodDefinitions = effectivePeriods
-        )
-        if (conflictWeeks.isEmpty()) {
-            commit(replacementsToSave)
-        } else {
-            showSaveChangesDialog = false
-            pendingConflictSave = PendingCourseManagementConflictSave(
-                replacements = replacementsToSave,
-                conflictWeeks = conflictWeeks
-            )
-        }
+        commit(replacementsToSave)
     }
 
     fun requestBack() {
@@ -1027,25 +1001,6 @@ internal fun CourseManagementDetailPage(
                 }),
                 config = state.config,
                 onDismissRequest = { validationMessage = null },
-            )
-        }
-        pendingConflictSave?.let { pending ->
-            CourseConflictRetentionDialog(
-                course = pending.replacements.firstOrNull() ?: group.representative,
-                conflictWeeks = pending.conflictWeeks,
-                backdrop = pickerBackdrop,
-                config = state.config,
-                onKeepTemporarily = {
-                    pendingConflictSave = null
-                    commit(pending.replacements)
-                },
-                onReturn = { pendingConflictSave = null; pendingExitAction = null },
-                retentionMessage = buildString {
-                    append("“${pending.replacements.firstOrNull()?.name ?: group.representative.name}”在")
-                    append(pending.conflictWeeks.take(4).joinToString("、") { "第${it}周" })
-                    if (pending.conflictWeeks.size > 4) append("等${pending.conflictWeeks.size}周")
-                    append("与其他课程重合。可以暂时保留这些安排，之后仍可在课表中继续调整。")
-                }
             )
         }
     }

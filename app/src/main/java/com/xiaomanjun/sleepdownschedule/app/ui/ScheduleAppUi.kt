@@ -185,8 +185,6 @@ import com.xiaomanjun.sleepdownschedule.domain.agent.AgentActionHandler
 import com.xiaomanjun.sleepdownschedule.domain.agent.AgentPlan
 import com.xiaomanjun.sleepdownschedule.domain.agent.AgentPlanExecutionResult
 import com.xiaomanjun.sleepdownschedule.domain.course.conflictWeeksForAddedCourses
-import com.xiaomanjun.sleepdownschedule.domain.course.conflictWeeksForEditedCourseGroup
-import com.xiaomanjun.sleepdownschedule.domain.course.conflictWeeksForSingleWeekEdit
 import com.xiaomanjun.sleepdownschedule.domain.schedule.adjustedTeachingWeekForDate
 import com.xiaomanjun.sleepdownschedule.domain.schedule.formatScheduleDate
 import com.xiaomanjun.sleepdownschedule.domain.schedule.previewCourseEdits
@@ -213,6 +211,7 @@ import com.xiaomanjun.sleepdownschedule.feature.course.editor.CourseEditorFlight
 import com.xiaomanjun.sleepdownschedule.feature.course.editor.CourseEditorOverlayPhase
 import com.xiaomanjun.sleepdownschedule.feature.course.editor.CourseEditorOverlayRequest
 import com.xiaomanjun.sleepdownschedule.feature.course.editor.CourseEditorSourceHandoff
+import com.xiaomanjun.sleepdownschedule.feature.home.overlay.OverlapEditorTarget
 import com.xiaomanjun.sleepdownschedule.feature.home.week.LocalWeekCourseAddition
 import com.xiaomanjun.sleepdownschedule.feature.home.week.WeekCourseAddPreview
 import com.xiaomanjun.sleepdownschedule.feature.home.week.WeekCourseAddition
@@ -249,7 +248,6 @@ import com.xiaomanjun.sleepdownschedule.feature.home.adaptiveWeekRowHeightDp
 import com.xiaomanjun.sleepdownschedule.feature.home.boundlessHomeTopGradientHeight
 import com.xiaomanjun.sleepdownschedule.feature.home.day.ApplyCourseDeleteDialog
 import com.xiaomanjun.sleepdownschedule.feature.home.day.ApplyCourseEditDialog
-import com.xiaomanjun.sleepdownschedule.feature.home.day.CourseConflictRetentionDialog
 import com.xiaomanjun.sleepdownschedule.feature.home.day.DayViewPreferences
 import com.xiaomanjun.sleepdownschedule.feature.home.day.HomeBackdropFallback
 import com.xiaomanjun.sleepdownschedule.core.wallpaper.HomeReadabilityContext
@@ -268,6 +266,7 @@ import com.xiaomanjun.sleepdownschedule.feature.home.day.LocalHomeWallpaperTextA
 import com.xiaomanjun.sleepdownschedule.feature.home.day.rememberHomeWallpaperLightStyle
 import com.xiaomanjun.sleepdownschedule.feature.home.day.luminance
 import com.xiaomanjun.sleepdownschedule.feature.home.day.occurrenceOverrideKey
+import com.xiaomanjun.sleepdownschedule.feature.home.week.resolveLiveOverlapEntriesForDay
 import com.xiaomanjun.sleepdownschedule.feature.home.week.weekPresentationWeekdays
 import com.xiaomanjun.sleepdownschedule.feature.home.day.weekCourseBuckets
 import com.xiaomanjun.sleepdownschedule.feature.home.homeOverlayDepthProgress
@@ -277,6 +276,7 @@ import com.xiaomanjun.sleepdownschedule.feature.home.minimumWeekCardHeightScale
 import com.xiaomanjun.sleepdownschedule.feature.home.normalizedWeekCardHeightScale
 import com.xiaomanjun.sleepdownschedule.feature.home.overlay.CourseCopyController
 import com.xiaomanjun.sleepdownschedule.feature.home.overlay.CourseCopyOverlay
+import com.xiaomanjun.sleepdownschedule.feature.home.overlay.CourseOverlapOverlay
 import com.xiaomanjun.sleepdownschedule.feature.home.overlay.CourseRemovalDurationMillis
 import com.xiaomanjun.sleepdownschedule.feature.home.overlay.CourseRemovalMotion
 import com.xiaomanjun.sleepdownschedule.feature.home.overlay.CourseShortcutController
@@ -287,8 +287,10 @@ import com.xiaomanjun.sleepdownschedule.feature.home.overlay.HomeAnchoredOverlay
 import com.xiaomanjun.sleepdownschedule.feature.home.overlay.HomeAnchoredOverlayPhase
 import com.xiaomanjun.sleepdownschedule.feature.home.overlay.HomeAnchoredOverlayRequest
 import com.xiaomanjun.sleepdownschedule.feature.home.overlay.LocalCourseCopy
+import com.xiaomanjun.sleepdownschedule.feature.home.overlay.LocalCourseOverlapPreview
 import com.xiaomanjun.sleepdownschedule.feature.home.overlay.LocalCourseRemoval
 import com.xiaomanjun.sleepdownschedule.feature.home.overlay.LocalCourseShortcuts
+import com.xiaomanjun.sleepdownschedule.feature.home.overlay.ScheduleOverlapController
 import com.xiaomanjun.sleepdownschedule.feature.home.overlay.homeAddMenuTargetRect
 import com.xiaomanjun.sleepdownschedule.feature.home.overlay.rememberHomeAnchoredMorphState
 import com.xiaomanjun.sleepdownschedule.core.ui.material.PersonalizeCardAlphaSlider
@@ -368,7 +370,6 @@ import com.xiaomanjun.sleepdownschedule.glass.ui.buildCourseCardColorAssignments
 import com.xiaomanjun.sleepdownschedule.glass.ui.courseCardColorKey
 import com.xiaomanjun.sleepdownschedule.glass.ui.rememberFallbackAdaptiveGlassState
 import com.xiaomanjun.sleepdownschedule.glass.ui.LocalHomeWallpaperLightStyle
-import com.xiaomanjun.sleepdownschedule.glass.ui.courseLiquidGlassEnabled
 import com.xiaomanjun.sleepdownschedule.glass.ui.rememberScreenScaledBackdrop
 import com.xiaomanjun.sleepdownschedule.glass.ui.resolvedCourseCardPalette
 import com.xiaomanjun.sleepdownschedule.isAfterScheduleTerm
@@ -588,23 +589,31 @@ fun CourseScheduleAppUi(
         trace("SleepDown Editor.open") { session.request = nextRequest }
         return true
     }
-    fun openAdjustedCourseEditor(courseId: Long, date: LocalDate, sourceBounds: Rect?) {
-        val original = state.courses.firstOrNull { it.id == courseId } ?: return
+    fun openAdjustedCourseEditor(
+        courseId: Long,
+        date: LocalDate,
+        sourceBounds: Rect?,
+        sourceHandoff: CourseEditorSourceHandoff? = null
+    ): Boolean {
+        val original = state.courses.firstOrNull { it.id == courseId } ?: return false
         val adjustment = scheduleAdjustmentForDate(state.config, date)
         val originalDate = adjustment?.sourceDate?.let(LocalDate::parse) ?: date
-        val originalWeek = adjustedTeachingWeekForDate(state.config, originalDate) ?: return
+        val originalWeek = adjustedTeachingWeekForDate(state.config, originalDate) ?: return false
         val message = if (adjustment?.sourceDate != null) {
             "$date 补 $originalDate（第 $originalWeek 周）的课。这里编辑原课程，修改也会同步到对应补课安排。"
         } else if (adjustment != null) {
             "$date 已停课。这里编辑保留的原课程；当天是否上课由调休安排决定。"
         } else null
-        openCourseEditor(original, originalWeek, sourceBounds, contextMessage = message,
-            sourceAdjustmentLabel = adjustment?.let { if (it.sourceDate == null) "停" else "补" })
+        return openCourseEditor(original, originalWeek, sourceBounds, contextMessage = message,
+            sourceAdjustmentLabel = adjustment?.let { if (it.sourceDate == null) "停" else "补" },
+            sourceHandoff = sourceHandoff)
     }
+    val courseOverlapPreview = remember(appScope) { ScheduleOverlapController(appScope) }
     fun closeCourseEditor() {
         courseEditorSessionRegistry.active.request = null
         if (courseEditorSessionRegistry.active.motion.phase == CourseEditorOverlayPhase.Idle)
             courseEditorSessionRegistry.active.retainedRequest = null
+        courseOverlapPreview.closeEditor()
     }
     fun dismissHomeDialog() {
         homeDialogVisible = false
@@ -702,11 +711,13 @@ fun CourseScheduleAppUi(
         homeAnchoredOverlayRequest != null || homeAnchoredMorphState.phase != HomeAnchoredOverlayPhase.Idle ||
             courseEditorRequest != null ||
             courseEditorSessions.any { it.visible } || courseShortcuts.backgroundActive ||
+            courseOverlapPreview.backgroundActive ||
             homeAssistant.stage == HomeAssistantStage.Conversation
-    val homeBackgroundOverlayActive = retainedHomeOverlayActive || courseShortcuts.request != null
+    val homeBackgroundOverlayActive = retainedHomeOverlayActive || courseShortcuts.request != null || courseOverlapPreview.visible
     val preserveHomeOverlayMotion = !isLandscapeMenuWindow() ||
         activeHomeAnchoredOverlay == HomeAnchoredOverlayKind.Personalize ||
-        courseShortcuts.backgroundActive || homeAssistant.visible || courseEditorSessions.any { it.visible }
+        courseShortcuts.backgroundActive || courseOverlapPreview.backgroundActive ||
+        homeAssistant.visible || courseEditorSessions.any { it.visible }
     val homeBackgroundFreezeActive = preserveHomeOverlayMotion && !rootPageMotion.moving && !homeModeMotion.moving && shouldUseFrozenHomeMorphBlur(
         screenIsHome = screen is Screen.Home,
         previewActive = personalizationPreviewActive,
@@ -1243,16 +1254,28 @@ fun CourseScheduleAppUi(
     // behind it stay aligned (see homeAnchoredOverlayBackdrop).
     val courseEditorBackdrop = rememberScreenScaledBackdrop(
         backdrop = cachedWeekHomeBackdrop,
-        scale = { courseEditorSessions.maxOfOrNull { it.motion.backgroundZoom.value } ?: 1f },
+        scale = { courseEditorSessions.filter { it.visible }.maxOfOrNull { it.motion.backgroundZoom.value } ?: 1f },
         rootPositionOnScreen = { homeRootPositionOnScreen },
         rootSize = { homeReadabilityRootSize }
     )
     val courseEditorSourceBackdrop = rememberScreenScaledBackdrop(
         backdrop = courseWallpaperBackdrop,
-        scale = { courseEditorSessions.maxOfOrNull { it.motion.backgroundZoom.value } ?: 1f },
+        scale = { courseEditorSessions.filter { it.visible }.maxOfOrNull { it.motion.backgroundZoom.value } ?: 1f },
         rootPositionOnScreen = { homeRootPositionOnScreen },
         rootSize = { homeReadabilityRootSize }
     )
+    val courseOverlapBackdrop = rememberScreenScaledBackdrop(
+        backdrop = cachedWeekHomeBackdrop,
+        scale = { 1f + (CourseEditorMotion.BackgroundZoomOpenScale - 1f) * courseOverlapPreview.backgroundZoomProgress },
+        rootPositionOnScreen = { homeRootPositionOnScreen },
+        rootSize = { homeReadabilityRootSize }
+    ) ?: centeredDialogSceneBackdrop
+    val courseOverlapCardBackdrop = rememberScreenScaledBackdrop(
+        backdrop = courseWallpaperBackdrop,
+        scale = { 1f + (CourseEditorMotion.BackgroundZoomOpenScale - 1f) * courseOverlapPreview.backgroundZoomProgress },
+        rootPositionOnScreen = { homeRootPositionOnScreen },
+        rootSize = { homeReadabilityRootSize }
+    ) ?: backgroundBackdrop
     // The week grid is recorded into screenGraphicsLayer at the window origin (the whole
     // readable root including the top bar). Sampling that same recorded scene keeps the
     // source-anchored overlays aligned in both day and week modes; the live chromeBackdrop
@@ -1293,8 +1316,9 @@ fun CourseScheduleAppUi(
             1f + (zoom - 1f) * (1f - personalizationPreviewProgress)
         } else {
             maxOf(
-                courseEditorSessions.maxOfOrNull { it.motion.backgroundZoom.value } ?: 1f,
-                homeAnchoredMorphState.backgroundZoom.value
+                courseEditorSessions.filter { it.visible }.maxOfOrNull { it.motion.backgroundZoom.value } ?: 1f,
+                homeAnchoredMorphState.backgroundZoom.value,
+                1f + (CourseEditorMotion.BackgroundZoomOpenScale - 1f) * courseOverlapPreview.backgroundZoomProgress
             )
         }
     }
@@ -1328,9 +1352,6 @@ fun CourseScheduleAppUi(
     var homeDisplayWeek by remember(visualState.config.id, visualState.loaded) {
         mutableIntStateOf(if (beforeScheduleTerm) 1 else homeCurrentWeek)
     }
-    var pendingConflictCourseId by remember(visualState.config.id) { mutableStateOf<Long?>(null) }
-    var pendingConflictCourseKey by remember(visualState.config.id) { mutableStateOf<String?>(null) }
-    var pendingConflictWeeks by remember(visualState.config.id) { mutableStateOf<List<Int>>(emptyList()) }
     var homeDisplayDate by remember(visualState.config.id) { mutableStateOf(todayDate) }
     LaunchedEffect(
         state.loaded,
@@ -1418,6 +1439,7 @@ fun CourseScheduleAppUi(
         addButtonHidden,
         rootPageMotion.moving,
         homeModeMotion.moving,
+        courseOverlapPreview.session,
         sidebarContentMetrics.contentWidth,
         parallelPhoneNavigation
     ) {
@@ -1442,6 +1464,7 @@ fun CourseScheduleAppUi(
                 .append('|').append(editingCourseIds.sorted())
                 .append('|').append(activeHomeAnchoredOverlay)
                 .append('|').append(addButtonHidden)
+                .append('|').append(courseOverlapPreview.session?.anchorKey)
                 .append('|').append(rootPageMotion.moving).append('|').append(homeModeMotion.moving)
             // Menus are sibling consumers outside this recorder. Hiding the source menu during
             // handoff changes no Home pixels and must not recapture the scene during Opening.
@@ -1514,10 +1537,29 @@ fun CourseScheduleAppUi(
         } else legacyHomeOverlayBackgroundBlurProgress()
         maxOf(activeDepth, courseEditorSessions.maxOfOrNull { it.request?.sourceHandoff?.backgroundDepth ?: 0f } ?: 0f)
     }
+    LaunchedEffect(
+        state.courses,
+        state.periods,
+        state.config,
+        courseOverlapPreview.session?.week,
+        courseOverlapPreview.session?.weekday
+    ) {
+        val currentSession = courseOverlapPreview.session ?: return@LaunchedEffect
+        val updatedEntries = resolveLiveOverlapEntriesForDay(
+            courses = state.courses,
+            periods = state.periods,
+            config = state.config,
+            week = currentSession.week,
+            weekday = currentSession.weekday,
+            anchorCourseIds = currentSession.entries.map { it.course.id }.toSet()
+        )
+        courseOverlapPreview.syncWithLiveEntries(updatedEntries)
+    }
     LaunchedEffect(screen, homeMode, visualState.config.id, homeDisplayWeek,
         homeAdaptiveMetrics.screenWidth, homeAdaptiveMetrics.screenHeight,
         homeAnchoredOverlayRequest, pickerState.overlayVisible) {
         courseShortcuts.reset()
+        courseOverlapPreview.reset()
     }
     LaunchedEffect(screen, homeMode, visualState.config.id, homeAnchoredOverlayRequest, pickerState.overlayVisible) {
         courseCopy.reset()
@@ -1963,9 +2005,7 @@ fun CourseScheduleAppUi(
     val courseBackdropViewport = remember { com.kyant.backdrop.BackdropViewport() }
     val courseMaterialsEnabled = AppMaterialPreferences.policy.courseSamples(
         visualState.config.courseCardGlassEnabled, visualState.config.courseCardGaussianBlurEnabled,
-        visualState.config.hasAnyWallpaper()) ||
-        (AppMaterialPreferences.policy.denseMaterials &&
-            courseLiquidGlassEnabled(visualState.config, appDarkTheme))
+        visualState.config.hasAnyWallpaper())
     val kitCourseMaterials = com.xiaomanjun.sleepdownschedule.core.ui.material.LocalVisualEffects.current.usesCouiControls &&
         AppMaterialPreferences.policy.denseMaterials
     val wallpaperBrightness = rememberUpdatedState(visualState.config.wallpaperBrightness)
@@ -2077,7 +2117,9 @@ fun CourseScheduleAppUi(
     // Local function references capture the current host inputs. Keep the provided callback
     // itself stable: every course card consumes it, including ordinary cards, and a tab change
     // must not invalidate that whole subtree just to keep its eventual click up to date.
-    val currentAdjustedCourseEditor = rememberUpdatedState<(Long, LocalDate, Rect?) -> Unit>(::openAdjustedCourseEditor)
+    val currentAdjustedCourseEditor = rememberUpdatedState<(Long, LocalDate, Rect?) -> Unit>({ courseId, date, bounds ->
+        openAdjustedCourseEditor(courseId, date, bounds)
+    })
     val adjustedCourseEditor = remember {
         { courseId: Long, date: LocalDate, bounds: Rect? ->
             currentAdjustedCourseEditor.value(courseId, date, bounds)
@@ -2162,6 +2204,7 @@ fun CourseScheduleAppUi(
         LocalDayAgentCountdownCinematic provides dayAgentCountdownCinematic,
         LocalAdjustedCourseEditor provides adjustedCourseEditor,
         LocalCourseShortcuts provides courseShortcuts,
+        LocalCourseOverlapPreview provides courseOverlapPreview,
         LocalCourseCopy provides courseCopy,
         LocalWeekCourseAddition provides weekCourseAddition.takeIf { canSelectWeekAddSlot },
         LocalCourseRemoval provides courseRemoval,
@@ -2218,7 +2261,7 @@ fun CourseScheduleAppUi(
                 }
             },
             onRelease = { homeAssistant.release(it && homeAssistant.armed) }
-        ).then(if (courseShortcuts.backgroundActive || courseCopy.active ||
+        ).then(if (courseShortcuts.backgroundActive || courseOverlapPreview.backgroundActive || courseCopy.active ||
             homeAssistant.stage == HomeAssistantStage.Reminder) {
                 Modifier.glassBackdropProducer(centeredDialogSceneBackdrop)
             } else {
@@ -2289,6 +2332,63 @@ fun CourseScheduleAppUi(
                     onRemove = { course, week ->
                         pendingCourseGroupDelete = emptyList()
                         homeDialog = HomeDialog.ApplyCourseDelete(course, week)
+                    }
+                )
+                CourseOverlapOverlay(
+                    controller = courseOverlapPreview,
+                    state = state,
+                    periods = visualState.periods,
+                    config = visualState.config,
+                    adaptiveMetrics = homeAdaptiveMetrics,
+                    contentInsets = PaddingValues(
+                        start = homeSidebarState.targetContentInset,
+                        top = homeSidebarState.targetContentTopInset,
+                        end = homeSidebarState.endInset
+                    ),
+                    backdrop = courseOverlapBackdrop,
+                    cardBackdrop = courseOverlapCardBackdrop,
+                    resolveEditorTarget = { entry ->
+                        if (entry.editingAllowed) {
+                            OverlapEditorTarget(
+                                course = entry.course,
+                                targetWeek = entry.week,
+                                contextMessage = null
+                            )
+                        } else {
+                            val date = entry.adjustedOccurrenceDate
+                            val original = state.courses.firstOrNull { it.id == entry.course.id }
+                            if (date != null && original != null) {
+                                val adjustment = scheduleAdjustmentForDate(state.config, date)
+                                val originalDate = adjustment?.sourceDate?.let(LocalDate::parse) ?: date
+                                val originalWeek = adjustedTeachingWeekForDate(state.config, originalDate)
+                                val message = if (adjustment?.sourceDate != null) {
+                                    "$date 补 $originalDate（第 ${originalWeek ?: entry.week} 周）的课。这里编辑原课程，修改也会同步到对应补课安排。"
+                                } else if (adjustment != null) {
+                                    "$date 已停课。这里编辑保留的原课程；当天是否上课由调休安排决定。"
+                                } else null
+                                OverlapEditorTarget(
+                                    course = original,
+                                    targetWeek = originalWeek ?: entry.week,
+                                    contextMessage = message
+                                )
+                            } else null
+                        }
+                    },
+                    onSaveCourse = { originals, editedCourses, targetWeek ->
+                        homeDialog = HomeDialog.ApplyCourseEdit(
+                            original = originals.first(),
+                            edited = editedCourses.first(),
+                            targetWeek = targetWeek ?: effectiveCurrentWeek(state.config),
+                            originals = originals,
+                            editedCourses = editedCourses
+                        )
+                    },
+                    onDeleteCourse = { courses, targetWeek ->
+                        pendingCourseGroupDelete = courses.takeIf { it.size > 1 }.orEmpty()
+                        homeDialog = HomeDialog.ApplyCourseDelete(
+                            courses.first(),
+                            targetWeek ?: effectiveCurrentWeek(state.config)
+                        )
                     }
                 )
                 // Overlay content is subcomposed by the host, not at its call site. Preserve the
@@ -2653,13 +2753,13 @@ fun CourseScheduleAppUi(
         // liquid sampling coordinates aligned without blurring the foreground panel itself.
         HomeBackgroundZoomLayer(
             zoom = homeOverlayBackgroundZoom,
-            dimProgress = { maxOf(homeOverlayBackgroundBlurProgress(), courseShortcuts.dimProgress) },
+            dimProgress = { maxOf(homeOverlayBackgroundBlurProgress(), courseShortcuts.dimProgress, courseOverlapPreview.backgroundBlurProgress) },
             modifier = Modifier
                 .fillMaxSize()
                 .background(MaterialTheme.colorScheme.background)
         ) {
         HomeBackgroundBlurLayer(
-            blurProgress = { maxOf(homeOverlayBackgroundBlurProgress(), courseShortcuts.backgroundProgress) },
+            blurProgress = { maxOf(homeOverlayBackgroundBlurProgress(), courseShortcuts.backgroundProgress, courseOverlapPreview.backgroundBlurProgress) },
             useFrozenHomeScene = useFrozenHomeMorphBlur,
             retainedScene = screenGraphicsLayer,
             replayUnblurredScene = weekAssistantConversation,
@@ -3004,20 +3104,7 @@ fun CourseScheduleAppUi(
                                         openUnifiedImportPage(files = uris)
                                     },
                                     onUpdateCourseSingleWeek = viewModel::updateCourseSingleWeek,
-                                    conflictFocusCourseId = pendingConflictCourseId
-                                        ?.takeIf { homeDisplayWeek in pendingConflictWeeks },
-                                    conflictFocusCourseKey = pendingConflictCourseKey
-                                        ?.takeIf { homeDisplayWeek in pendingConflictWeeks },
-                                    onResolveCourseConflict = { course, moved, week ->
-                                            viewModel.updateCourseSingleWeek(course, moved, week)
-                                        appScope.launch {
-                                            delay(180)
-                                            pendingConflictCourseId = null
-                                            pendingConflictCourseKey = null
-                                            pendingConflictWeeks = emptyList()
-                                        }
-                                    },
-                                     onDeleteCourseSingleWeek = { course, week ->
+                                    onDeleteCourseSingleWeek = { course, week ->
                                          pendingCourseGroupDelete = emptyList()
                                          homeDialog = HomeDialog.ApplyCourseDelete(course, week)
                                      },
@@ -3574,7 +3661,7 @@ fun CourseScheduleAppUi(
             else if (homeMode == HomeMode.Day) HomeSidebarDestination.Day else HomeSidebarDestination.Week,
         navigationEnabled = !rootPageMotion.moving && !homeModeMotion.moving && !sidebarPageMoving &&
             pendingSettingsExitAction == null && !importForm.submitting && !homeBackgroundOverlayActive && !homeAssistant.visible &&
-            courseShortcuts.request == null && !courseCopy.active && !homeDialogVisible && quickScheduleDraft == null &&
+            courseShortcuts.request == null && !courseOverlapPreview.visible && !courseCopy.active && !homeDialogVisible && quickScheduleDraft == null &&
             courseEditorRequest == null && courseEditorOverlayPhase == CourseEditorOverlayPhase.Idle &&
             (!pickerState.overlayVisible || pickerState.phase is CustomizeUiState.Picker) &&
             dayAgentBackgroundMotionState.progress.value < 0.001f,
@@ -3874,25 +3961,12 @@ fun CourseScheduleAppUi(
                 if (source?.creating != true || first == null) {
                     onResult(false)
                 } else {
-                    val conflictWeeks = conflictWeeksForAddedCourses(
-                        state.previewCourseEdits(courses), state.courses, state.periods
-                    )
-                    if (conflictWeeks.isEmpty()) {
-                        viewModel.addCourses(courses, source.course.scheduleId) { success ->
-                            onResult(success)
-                            if (success && editorSession.request === source) {
-                                weekCourseAddition.clear()
-                                editorSession.request = null
-                            }
+                    viewModel.addCourses(courses, source.course.scheduleId) { success ->
+                        onResult(success)
+                        if (success && editorSession.request === source) {
+                            weekCourseAddition.clear()
+                            editorSession.request = null
                         }
-                    } else {
-                        pendingCourseGroupEdit = PendingCourseGroupEdit(emptyList(), courses)
-                        homeDialog = HomeDialog.ConfirmCourseConflicts(
-                            original = first, edited = first,
-                            targetWeek = source.targetWeek ?: homeDisplayWeek,
-                            conflictWeeks = conflictWeeks
-                        )
-                        onResult(false)
                     }
                 }
             },
@@ -3952,8 +4026,8 @@ fun CourseScheduleAppUi(
                 else if (original != null) {
                     val id = (original.request ?: original.retainedRequest)?.course?.id
                     if (id != null && courseEditorSessionRegistry.canSelect(id)) {
-                    if (original.request != null) original.request = null
-                    else courseEditorSessionRegistry.reopen(original)
+                        if (original.request != null) original.request = null
+                        else courseEditorSessionRegistry.reopen(original)
                     }
                     true
                 } else courseEditorFlightRegistry.openTargetAt(position, homeDisplayWeek, day = homeMode != HomeMode.Week)
@@ -4156,185 +4230,23 @@ fun CourseScheduleAppUi(
                     destinationWeek != null &&
                     courseEditorHasOccurrence(dialog.original, dialog.targetWeek),
                 onSingle = {
-                    val conflictWeeks = conflictWeeksForSingleWeekEdit(
-                        state.previewCourseEdits(listOf(dialog.original)).single(),
-                        state.previewCourseEdits(listOf(singleEdited)).single(),
-                        dialog.targetWeek,
-                        state.courses,
-                        state.periods
+                    viewModel.updateCourseSingleWeek(
+                        dialog.original,
+                        singleEdited,
+                        dialog.targetWeek
                     )
-                    if (conflictWeeks.isEmpty()) {
-                        viewModel.updateCourseSingleWeek(
-                            dialog.original,
-                            singleEdited,
-                            dialog.targetWeek
-                        )
-                        dismissHomeDialog()
-                        closeCourseEditor()
-                        homeDisplayWeek = destinationWeek ?: dialog.targetWeek
-                    } else {
-                        homeDialog = HomeDialog.ConfirmCourseConflicts(
-                            dialog.original,
-                            singleEdited,
-                            dialog.targetWeek,
-                            conflictWeeks,
-                            singleWeekOnly = true,
-                            returnEdit = dialog
-                        )
-                    }
-                },
-                onAll = {
-                    val conflictWeeks = conflictWeeksForEditedCourseGroup(
-                        state.previewCourseEdits(allScope.originals), state.previewCourseEdits(allScope.edited), state.courses, state.periods
-                    )
-                    if (conflictWeeks.isEmpty()) {
-                        if (allScope.originals.size == 1 && allScope.edited.size == 1) {
-                            viewModel.updateCourse(allScope.edited.single())
-                        } else viewModel.replaceCourseGroup(allScope.originals, allScope.edited)
-                        dismissHomeDialog()
-                        closeCourseEditor()
-                    } else {
-                        pendingCourseGroupEdit = PendingCourseGroupEdit(allScope.originals, allScope.edited)
-                        homeDialog = HomeDialog.ConfirmCourseConflicts(
-                            dialog.original,
-                            allScope.edited.first(),
-                            dialog.targetWeek,
-                            conflictWeeks,
-                            returnEdit = dialog
-                        )
-                    }
-                },
-                onCancel = { dismissHomeDialog() }
-            )
-        } else if (dialog is HomeDialog.ConfirmCourseConflicts) {
-            CourseConflictRetentionDialog(
-                course = dialog.edited,
-                conflictWeeks = dialog.conflictWeeks,
-                backdrop = homeDialogBackdrop,
-                config = state.config,
-                onKeepTemporarily = keepConflict@{
-                    pendingCourseGroupEdit?.let { groupEdit ->
-                        if (groupEdit.originals.isEmpty()) {
-                            val editor = courseEditorSessionRegistry.active
-                            val request = editor.request
-                            pendingCourseGroupEdit = null
-                            dismissHomeDialog()
-                            if (request?.creating == true) {
-                                viewModel.addCourses(groupEdit.edited, request.course.scheduleId) { success ->
-                                    if (success && editor.request === request) {
-                                        pendingConflictCourseId = null
-                                        pendingConflictCourseKey = groupEdit.edited.first().occurrenceOverrideKey()
-                                        pendingConflictWeeks = dialog.conflictWeeks
-                                        weekCourseAddition.clear()
-                                        editor.request = null
-                                        appScope.launch {
-                                            snapshotFlow { editor.motion.phase }.first { it == CourseEditorOverlayPhase.Idle }
-                                            if (courseEditorSessions.none { it.visible }) {
-                                                homeDisplayWeek = dialog.conflictWeeks.first()
-                                                homeMode = HomeMode.Week
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                            return@keepConflict
-                        }
-                        val editorWasOpen = courseEditorRequest != null
-                        viewModel.replaceCourseGroup(groupEdit.originals, groupEdit.edited)
-                        pendingCourseGroupEdit = null
-                        pendingConflictCourseId = groupEdit.edited.firstOrNull()?.id?.takeIf { it > 0 }
-                        pendingConflictCourseKey = groupEdit.edited.firstOrNull()?.occurrenceOverrideKey()
-                        pendingConflictWeeks = dialog.conflictWeeks
-                        dismissHomeDialog()
-                        closeCourseEditor()
-                        val conflictWeek = dialog.conflictWeeks.first()
-                        if (editorWasOpen) {
-                            appScope.launch {
-                                snapshotFlow { courseEditorMotionState.phase }.first { it == CourseEditorOverlayPhase.Idle }
-                                if (courseEditorSessions.any { it.visible }) return@launch
-                                homeDisplayWeek = conflictWeek
-                                homeMode = HomeMode.Week
-                            }
-                        } else {
-                            homeDisplayWeek = conflictWeek
-                            homeMode = HomeMode.Week
-                        }
-                        return@keepConflict
-                    }
-                    val editorWasOpen = courseEditorRequest != null
-                    val editedRetractBounds = courseEditorRequest
-                        ?.sourceBoundsInRoot
-                        ?.takeIf { homeMode == HomeMode.Week }
-                        ?.let { source ->
-                            val periodIndexes = state.periods.map { it.periodIndex }
-                            val originalStart = dialog.original.periods
-                                .map(periodIndexes::indexOf)
-                                .filter { it >= 0 }
-                                .minOrNull()
-                            val editedPositions = dialog.edited.periods
-                                .map(periodIndexes::indexOf)
-                                .filter { it >= 0 }
-                                .distinct()
-                                .sorted()
-                            val editedStart = editedPositions.firstOrNull()
-                            if (originalStart == null || editedStart == null) {
-                                null
-                            } else {
-                                val cardHeightPx = with(density) { weekCardHeight.dp.toPx() }
-                                val cardGapPx = with(density) { 4.dp.toPx() }
-                                val left = source.left +
-                                    (dialog.edited.weekday - dialog.original.weekday) *
-                                    (source.width + cardGapPx)
-                                val top = source.top +
-                                    (editedStart - originalStart) * cardHeightPx
-                                val targetHeight = (
-                                    cardHeightPx * editedPositions.size.coerceAtLeast(1) -
-                                        cardGapPx
-                                    ).coerceAtLeast(with(density) { 18.dp.toPx() })
-                                Rect(left, top, left + source.width, top + targetHeight)
-                            }
-                        }
-                    courseEditorMotionState.retractTo(editedRetractBounds)
-                    if (dialog.singleWeekOnly) {
-                        viewModel.updateCourseSingleWeek(
-                            dialog.original,
-                            dialog.edited,
-                            dialog.targetWeek
-                        )
-                    } else {
-                        viewModel.updateCourse(dialog.edited)
-                    }
-                    pendingConflictCourseId =
-                        dialog.edited.id.takeUnless { dialog.singleWeekOnly }
-                    pendingConflictCourseKey = dialog.edited.occurrenceOverrideKey()
-                    pendingConflictWeeks = dialog.conflictWeeks
                     dismissHomeDialog()
                     closeCourseEditor()
-                    val conflictWeek = dialog.conflictWeeks.first()
-                    if (editorWasOpen) {
-                        appScope.launch {
-                            snapshotFlow { courseEditorMotionState.phase }.first { it == CourseEditorOverlayPhase.Idle }
-                            if (courseEditorSessions.any { it.visible }) return@launch
-                            homeDisplayWeek = conflictWeek
-                            homeMode = HomeMode.Week
-                        }
-                    } else {
-                        homeDisplayWeek = conflictWeek
-                        homeMode = HomeMode.Week
-                    }
+                    homeDisplayWeek = destinationWeek ?: dialog.targetWeek
                 },
-                onReturn = {
-                    if (pendingCourseGroupEdit != null || courseEditorRequest != null) {
-                        pendingCourseGroupEdit = null
-                        dismissHomeDialog()
-                    } else {
-                        homeDialog = dialog.returnEdit ?: HomeDialog.ApplyCourseEdit(
-                            dialog.original,
-                            dialog.edited,
-                            dialog.targetWeek
-                        )
-                    }
-                }
+                onAll = {
+                    if (allScope.originals.size == 1 && allScope.edited.size == 1) {
+                        viewModel.updateCourse(allScope.edited.single())
+                    } else viewModel.replaceCourseGroup(allScope.originals, allScope.edited)
+                    dismissHomeDialog()
+                    closeCourseEditor()
+                },
+                onCancel = { dismissHomeDialog() }
             )
         } else if (dialog is HomeDialog.ApplyCourseDelete) {
             ApplyCourseDeleteDialog(

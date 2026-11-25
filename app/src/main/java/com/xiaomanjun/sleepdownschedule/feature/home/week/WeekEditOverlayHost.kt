@@ -113,13 +113,7 @@ internal fun WeekEditOverlayHost(
             weekdayCount = req.weekdayCount
         )
     } } }
-    val previewCourse = when (req.mode) {
-        WeekEditOverlayMode.Move -> req.course.copy(weekday = target.weekday, periods = target.periods)
-        WeekEditOverlayMode.Resize -> req.course.copy(periods = target.periods)
-    }
-    val conflict = !target.valid ||
-        hasWeekCourseEditConflict(if (req.destinationWeek != req.editWeek) req.course.copy(id = -1) else req.course,
-            previewCourse, req.weekCourses, req.destinationWeek)
+    val invalidTarget = !target.valid
     val previewLeft = req.sourceBounds.left - host.left + req.columnDeltaTo(target.weekday) * req.gridColumnWidthPx
     val previewTop = req.sourceBounds.top - host.top +
         req.rowTopFor(target.periods.firstOrNull() ?: req.periodIndex) - req.rowTopFor(req.periodIndex)
@@ -141,10 +135,21 @@ internal fun WeekEditOverlayHost(
     )
     val elevationPx = with(density) { 18.dp.toPx() }
     val parentRedraw = rememberUpdatedState(LocalGlassSampleRecordKey.current)
+    val tuckActive = motion.tuckUnderActive
+    val dipMaxPx = (heightPx * 0.78f).coerceIn(
+        with(density) { 80.dp.toPx() },
+        with(density) { 148.dp.toPx() }
+    )
+    val tuckTransform = if (tuckActive) {
+        weekEditTuckUnderTransform(motion.tuckUnderProgress, dipMaxPx)
+    } else null
+    val absorbTransform = if (tuckActive) {
+        weekEditFrontAbsorbTransform(motion.tuckUnderProgress)
+    } else null
     val redraw = remember(motion) { {
         parentRedraw.value()
         // Placement and transforms do not invalidate a retained drawing on their own.
-        motion.offsetX; motion.offsetY; motion.height; motion.scale; motion.rotation; motion.liftProgress
+        motion.offsetX; motion.offsetY; motion.height; motion.scale; motion.rotation; motion.liftProgress; motion.tuckUnderProgress
     } }
     CompositionLocalProvider(LocalGlassSampleRecordKey provides redraw) {
         Box(
@@ -166,43 +171,53 @@ internal fun WeekEditOverlayHost(
                     .size(cardGlowDiameterDp)
                     .graphicsLayer { alpha = motion.alpha }
             )
-            Box(
-                modifier = Modifier
-                    .offset { IntOffset(animatedPreviewLeft.value.roundToInt(), (animatedPreviewTop.value - motion.gridScrollCompensationY).roundToInt()) }
-                    .width(widthDp)
-                    .layout { measurable, constraints ->
-                        val h = animatedPreviewHeight.value.roundToInt().coerceAtLeast(1)
-                        val child = measurable.measure(constraints.copy(minHeight = h, maxHeight = h))
-                        layout(child.width, child.height) { child.place(0, 0) }
-                    }
-                    .graphicsLayer { alpha = 0.18f + motion.liftProgress * 0.72f }
-                    .clip(cardShape)
-                    .background(
-                        if (conflict) MaterialTheme.colorScheme.error.copy(alpha = 0.32f)
-                        else ComposeColor.Gray.copy(alpha = 0.24f)
-                    )
-            )
+            val placeholderAlpha = if (tuckActive && motion.tuckUnderProgress > 0.01f) {
+                0f
+            } else {
+                0.18f + motion.liftProgress * 0.72f
+            }
+            if (placeholderAlpha > 0.005f) {
+                Box(
+                    modifier = Modifier
+                        .offset { IntOffset(animatedPreviewLeft.value.roundToInt(), (animatedPreviewTop.value - motion.gridScrollCompensationY).roundToInt()) }
+                        .width(widthDp)
+                        .layout { measurable, constraints ->
+                            val h = animatedPreviewHeight.value.roundToInt().coerceAtLeast(1)
+                            val child = measurable.measure(constraints.copy(minHeight = h, maxHeight = h))
+                            layout(child.width, child.height) { child.place(0, 0) }
+                        }
+                        .graphicsLayer { alpha = placeholderAlpha }
+                        .clip(cardShape)
+                        .background(
+                            if (invalidTarget) MaterialTheme.colorScheme.error.copy(alpha = 0.32f)
+                            else ComposeColor.Gray.copy(alpha = 0.24f)
+                        )
+                )
+            }
             Box(
                 modifier = Modifier
                     .offset { IntOffset((originLeft + motion.offsetX).roundToInt(), (originTop + motion.offsetY).roundToInt()) }
                     .width(widthDp)
                     .height(heightDp)
+                    .zIndex(if (tuckTransform?.behindFront == true) 1f else 3f)
                     .onGloballyPositioned { cardCoordinates[0] = it }
                     .graphicsLayer {
                         // A resize handle owns only the lower edge: keep the top edge and width fixed
                         // instead of applying the move gesture's two-axis lifted scale around the
                         // fingertip. The card can therefore grow/shrink in exactly one direction.
-                        transformOrigin = if (req.mode == WeekEditOverlayMode.Resize) {
-                            TransformOrigin(0.5f, 0f)
-                        } else {
-                            touchTransformOrigin
+                        transformOrigin = when {
+                            tuckTransform != null -> TransformOrigin.Center
+                            req.mode == WeekEditOverlayMode.Resize -> TransformOrigin(0.5f, 0f)
+                            else -> touchTransformOrigin
                         }
-                        scaleX = if (req.mode == WeekEditOverlayMode.Resize) 1f else motion.scale
-                        scaleY = if (req.mode == WeekEditOverlayMode.Resize) 1f else motion.scale
-                        translationY = -liftPx * motion.liftProgress
+                        val tuckScale = tuckTransform?.scale ?: 1f
+                        val baseScale = if (req.mode == WeekEditOverlayMode.Resize) 1f else motion.scale
+                        scaleX = baseScale * tuckScale
+                        scaleY = baseScale * tuckScale
+                        translationY = -liftPx * motion.liftProgress + (tuckTransform?.dipOffsetY ?: 0f)
                         rotationZ = motion.rotation
-                        alpha = motion.alpha
-                        shadowElevation = elevationPx * motion.liftProgress
+                        alpha = motion.alpha * (tuckTransform?.alpha ?: 1f)
+                        shadowElevation = elevationPx * motion.liftProgress * (tuckTransform?.shadowFraction ?: 1f)
                         shape = cardShape
                     }
             ) {
@@ -238,6 +253,67 @@ internal fun WeekEditOverlayHost(
                             .size(44.dp)
                             .zIndex(2f)
                     )
+                }
+            }
+            val tuckHost = motion.tuckUnderHostCourse
+            val tuckHostBounds = motion.liveTuckUnderHostBounds()
+            if (tuckActive && tuckHost != null && tuckHostBounds != null && absorbTransform != null) {
+                val hostLeft = tuckHostBounds.left - host.left
+                val hostTop = tuckHostBounds.top - host.top
+                val hostWidthDp = with(density) { tuckHostBounds.width.toDp().coerceAtLeast(1.dp) }
+                val hostHeightDp = with(density) { tuckHostBounds.height.toDp().coerceAtLeast(1.dp) }
+                val hostCorner = adaptiveWeekCardCornerRadius(
+                    cardWidth = hostWidthDp,
+                    cardHeight = hostHeightDp,
+                    windowWidth = windowSize.width,
+                    windowHeight = windowSize.height,
+                    progress = cornerProgress
+                )
+                val hostShape = remember(hostCorner) { RoundedRectangle(hostCorner) }
+                val absorbLiftPx = with(density) { 5.dp.toPx() }
+                val badgeReveal = ((motion.tuckUnderProgress - 0.66f) / 0.22f).coerceIn(0f, 1f)
+                Box(
+                    modifier = Modifier
+                        .offset { IntOffset(hostLeft.roundToInt(), hostTop.roundToInt()) }
+                        .size(hostWidthDp, hostHeightDp)
+                        .zIndex(2f)
+                        .graphicsLayer {
+                            transformOrigin = TransformOrigin.Center
+                            scaleX = absorbTransform.scale
+                            scaleY = absorbTransform.scale
+                            translationY = absorbTransform.liftOffsetY * absorbLiftPx
+                            alpha = motion.alpha
+                            shape = hostShape
+                        }
+                ) {
+                    CourseGlassCard(
+                        backdrop = backdrop,
+                        config = config,
+                        course = tuckHost,
+                        modifier = Modifier.fillMaxSize(),
+                        shape = hostShape,
+                        followTouch = false,
+                        onClick = null
+                    ) {
+                        WeekCourseOverlayCardContent(tuckHost, config)
+                    }
+                    if (motion.tuckUnderOverlapCount > 1 && badgeReveal > 0.01f) {
+                        com.xiaomanjun.sleepdownschedule.feature.home.overlay.CourseOverlapBadge(
+                            count = motion.tuckUnderOverlapCount,
+                            cardCorner = hostCorner,
+                            backdrop = backdrop,
+                            config = config,
+                            modifier = Modifier
+                                .align(Alignment.TopEnd)
+                                .zIndex(7f)
+                                .graphicsLayer {
+                                    val badgeScale = 0.62f + 0.38f * badgeReveal
+                                    alpha = badgeReveal
+                                    scaleX = badgeScale
+                                    scaleY = badgeScale
+                                }
+                        )
+                    }
                 }
             }
         }
