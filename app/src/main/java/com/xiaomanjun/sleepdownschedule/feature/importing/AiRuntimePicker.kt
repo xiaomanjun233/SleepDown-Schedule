@@ -161,7 +161,7 @@ internal fun AiRuntimePicker(
             // A failed discovery keeps the last usable list; it must not block model selection.
         }
     }
-    val profiles = remember(state.revision, auth.account) {
+    val profiles = remember(state.revision, settingsChanges, auth.account) {
         AiImportSettingsStore.selectableProfiles(context)
             .filter { it.id != AiProviderPresets.none.id }
             .filter { profile ->
@@ -170,7 +170,7 @@ internal fun AiRuntimePicker(
                 } else AiImportSettingsStore.loadProvider(context, profile.id).apiKey.isNotBlank()
             }
     }
-    val modelOptions = remember(state.settings.profile, state.revision) {
+    val modelOptions = remember(state.settings.profile, state.revision, settingsChanges) {
         AiProviderPresets.modelOptions(state.settings.profile)
     }
     val efforts = remember(state.settings.profile, state.revision) {
@@ -218,7 +218,15 @@ internal fun AiRuntimePicker(
                         ignoreCase = true
                     ),
                     onClick = {
-                        val candidate = state.settings.profile.copy(defaultModel = option.model)
+                        val currentProfile = state.settings.profile
+                        val preservedModels = (currentProfile.availableModels + option.model)
+                            .map(String::trim)
+                            .filter(String::isNotBlank)
+                            .distinctBy(String::lowercase)
+                        val candidate = currentProfile.copy(
+                            defaultModel = option.model,
+                            availableModels = preservedModels
+                        )
                         val supportedEfforts = AiProviderPresets.reasoningEfforts(candidate)
                         val nextProfile = candidate.copy(
                             reasoningEffort = candidate.reasoningEffort.takeIf { it in supportedEfforts }

@@ -217,7 +217,11 @@ fun AiImportSettingsSection(
                 val catalog = AiProviderModelCatalog.refresh(context, requestSettings)
                 if (selectedProviderId == requestProfile.id &&
                     normalizeAiBaseUrlForProvider(selectedProviderId, baseUrl) == requestProfile.baseUrl) {
-                    availableModelsText = catalog.joinToString("\n") { it.model }
+                    val presetDefaultIds = AiProviderPresets.modelOptions(requestProfile.id).mapTo(mutableSetOf()) { it.model.lowercase() }
+                    val customIds = configuredModelIds.filterNot { it.lowercase() in presetDefaultIds }
+                    availableModelsText = (catalog.map { it.model } + customIds)
+                        .distinctBy(String::lowercase)
+                        .joinToString("\n")
                     modelCatalogRevision++
                     catalog.firstOrNull { it.model == model.trim() }?.let { supportsVision = it.supportsImageInput }
                     modelCatalogMessage = "已从官方获取 ${catalog.size} 个模型"

@@ -415,10 +415,26 @@ object AiProviderPresets {
             }
         }
         if (profile.modelCatalog.isNotEmpty()) {
-            val selected = profile.defaultModel.trim()
             val current = profile.modelCatalog
-            return if (selected.isBlank() || current.any { it.model.equals(selected, ignoreCase = true) }) current
-            else current + AiModelOption(selected, selected, profile.supportsVision, profile.capabilities.supportsResponses)
+            val presentIds = current.mapTo(mutableSetOf()) { it.model.lowercase() }
+            val presetDefaultIds = modelOptions(profile.id).mapTo(mutableSetOf()) { it.model.lowercase() }
+            val extras = (profile.availableModels.filter { modelId ->
+                val normalized = modelId.trim()
+                normalized.isNotBlank() && normalized.lowercase() !in presetDefaultIds
+            } + profile.defaultModel)
+                .map(String::trim)
+                .filter(String::isNotBlank)
+                .distinctBy(String::lowercase)
+                .filterNot { it.lowercase() in presentIds }
+                .map { modelId ->
+                    AiModelOption(
+                        label = modelId,
+                        model = modelId,
+                        supportsImageInput = profile.supportsVision || profile.capabilities.supportsImageInput,
+                        supportsResponses = profile.capabilities.supportsResponses
+                    )
+                }
+            return current + extras
         }
         if (isChatGptId(profile.id)) {
             return profile.availableModels.filter(String::isNotBlank).distinct().map { model ->

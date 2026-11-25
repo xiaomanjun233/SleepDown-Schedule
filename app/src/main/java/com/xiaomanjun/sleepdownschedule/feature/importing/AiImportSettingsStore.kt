@@ -511,7 +511,7 @@ object AiImportSettingsStore {
             supportsFileUpload = prefs.getBoolean(KeyFileUpload, preset.capabilities.supportsFileUpload),
             supportsResponses = prefs.getBoolean(KeyResponses, preset.capabilities.supportsResponses)
         )
-        val defaultModel = prefs.getString(KeyModel, preset.defaultModel).orEmpty()
+        val defaultModel = prefs.getString(KeyModel, preset.defaultModel).orEmpty().trim()
         val profile = preset.copy(
             providerType = providerType,
             baseUrl = normalizeAiBaseUrlForProvider(preset.id, prefs.getString(KeyBaseUrl, preset.baseUrl).orEmpty()),
@@ -623,7 +623,7 @@ object AiImportSettingsStore {
                 val defaultModel = prefs.getString(
                     providerKey(KeyModel, preset.id),
                     preset.defaultModel
-                ).orEmpty()
+                ).orEmpty().trim()
                 preset.copy(
                     providerType = providerType,
                     baseUrl = normalizeAiBaseUrlForProvider(
@@ -745,6 +745,7 @@ object AiImportSettingsStore {
                 putString(apiKeyKey(settings.profile.id), encrypt(context, settings.apiKey))
             }
         }
+        notifyChanged()
     }
 
     private fun writeProviderSettings(

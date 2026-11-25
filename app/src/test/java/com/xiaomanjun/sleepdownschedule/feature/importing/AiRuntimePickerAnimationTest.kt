@@ -79,4 +79,39 @@ class AiRuntimePickerAnimationTest {
         compose.activityRule.scenario.moveToState(Lifecycle.State.CREATED)
         compose.runOnIdle { assertFalse(state.expanded); assertFalse(state.triggerTransferred) }
     }
+
+    @Test fun wheelCanSwitchToUserAddedModelsOnCustomAndCatalogProviders() {
+        val context = RuntimeEnvironment.getApplication()
+        val catalog = listOf(AiModelOption("Live Pro", "mimo-live-pro", supportsImageInput = true, supportsResponses = true))
+        AiProviderModelCatalog.save(context, AiProviderPresets.mimo, catalog)
+        val settings = AiImportSettings(
+            AiProviderPresets.mimo.copy(
+                defaultModel = "mimo-live-pro",
+                availableModels = listOf("my-custom-mimo-v2")
+            )
+        )
+        AiImportSettingsStore.save(context, settings)
+        val state = AiRuntimePickerState(AiImportSettingsStore.loadProvider(context, AiProviderPresets.mimo.id))
+        val config = defaultConfig()
+        compose.setContent {
+            MaterialTheme {
+                GlassMiuixSettingsTheme(config) {
+                    Scaffold(Modifier.fillMaxSize()) {
+                        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.BottomEnd) {
+                            AiRuntimePicker(state, config, null, embedded = true)
+                        }
+                    }
+                }
+            }
+        }
+        compose.waitForIdle()
+        compose.onNodeWithText("mimo-live-pro").performClick()
+        compose.waitForIdle()
+        compose.onNodeWithText("模型").performClick()
+        compose.waitForIdle()
+        compose.onNodeWithText("my-custom-mimo-v2").assertIsDisplayed().performClick()
+        compose.waitForIdle()
+        assertEquals("my-custom-mimo-v2", state.settings.profile.defaultModel)
+        assertEquals("my-custom-mimo-v2", AiImportSettingsStore.load(context).profile.defaultModel)
+    }
 }
