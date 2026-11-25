@@ -88,16 +88,41 @@ internal fun courseSimpleBlurTintAlpha(cardAlpha: Float, quality: Float, hasWall
         .coerceIn(0f, 0.18f)
 }
 
-/** Liquid course cards remain available on the light, wallpaper-free page. */
-internal fun courseLiquidGlassEnabled(config: ScheduleConfigEntity, dark: Boolean): Boolean =
-    config.courseCardGlassEnabled && (config.hasAnyWallpaper() || !dark)
+internal data class NativeCourseCardTintSpec(
+    val alpha: Float,
+    val topTintFloor: Float,
+    val blurRadiusScale: Float,
+    val translucentOverBackdrop: Boolean,
+)
 
-/** Wallpaper-free liquid cards keep the same bottom-lit tint as the wallpaper material. */
-internal fun courseGlassTintUsesGradient(
-    useGlass: Boolean,
+/** Light wallpaper-free Glow cards keep COUI backdrop blur and a bottom-lit gradient over it. */
+internal fun nativeCourseCardTintSpec(
+    tintStrength: Float,
     hasWallpaper: Boolean,
-    outlineLightEnabled: Boolean
-): Boolean = useGlass && (!hasWallpaper || outlineLightEnabled)
+    lightCardBacking: Boolean,
+    hasCourse: Boolean,
+    nativeEdgeEffects: Boolean,
+    hasBackdrop: Boolean,
+): NativeCourseCardTintSpec {
+    val strength = tintStrength.coerceIn(0f, 1f)
+    val wallpaperCardGradient = hasWallpaper && hasCourse && nativeEdgeEffects
+    val lightNativeGradient = !hasWallpaper && lightCardBacking
+    val alpha = when {
+        wallpaperCardGradient -> strength
+        lightNativeGradient -> 0.20f + 0.30f * strength
+        else -> strength * (0x66 / 255f)
+    }
+    val topTintFloor = when {
+        wallpaperCardGradient || lightNativeGradient -> 0.20f
+        else -> 0.55f
+    }
+    return NativeCourseCardTintSpec(
+        alpha = alpha,
+        topTintFloor = topTintFloor,
+        blurRadiusScale = 1f,
+        translucentOverBackdrop = !lightNativeGradient || hasBackdrop,
+    )
+}
 
 /**
  * 壁纸降亮度时课程卡片的跟随衰减系数。卡片也随壁纸变暗一点，但幅度小于壁纸；
@@ -173,6 +198,7 @@ fun CourseGlassCard(
     externalTouch: (() -> com.xiaomanjun.sleepdownschedule.core.ui.designsystem.NativeSurfaceTouch)? = null,
     // Expanded forms can keep course material without the card's rim/caustic projection.
     nativeEdgeEffects: Boolean = true,
+    nativeCaustic: Boolean = nativeEdgeEffects,
     followLightRadius: androidx.compose.ui.unit.Dp? = null,
     muted: Boolean = false,
     flatOpacityOverride: Float? = null,
@@ -185,9 +211,12 @@ fun CourseGlassCard(
     // A custom morph filter reads the raw source; ordinary surfaces receive the prepared
     // handle explicitly from their scene, including floating/animated copies.
     val localBackdrop = wallpaper?.filtered?.source ?: backdrop
-    val preparedWallpaper = wallpaper?.takeIf { blurOverride == null && nativeBlurRadius == null }
     val dark = appUsesDarkTheme(config)
     val hasWallpaper = config.hasAnyWallpaper()
+    val preparedWallpaper = wallpaper?.takeIf {
+        hasWallpaper && blurOverride == null && nativeBlurRadius == null &&
+            (it.textureReady || it.filtered.filter != null)
+    }
     val pageBackground = homeFlatBackgroundColor(dark)
     val lightCardBacking = pageBackground.takeIf {
         !dark && !hasWallpaper && course != null && nativeEdgeEffects && !muted && flatOpacityOverride == null
@@ -237,21 +266,32 @@ fun CourseGlassCard(
     val previewState = LocalPersonalizationPreview.current
     val nativeMode = com.xiaomanjun.sleepdownschedule.core.ui.designsystem.LocalNativeCourseCardMode.current
     if (nativeMode?.enabled == true) {
-        val strength = nativeMode.tintStrength
         val wallpaperCardGradient = hasWallpaper && course != null && nativeEdgeEffects
-        val alpha = when {
-            wallpaperCardGradient -> strength
-            lightCardBacking != null -> courseTintAlpha(strength)
-            else -> strength * (0x66 / 255f)
-        }
-        val topTintFloor = when {
-            wallpaperCardGradient -> 0.20f
-            lightCardBacking != null -> 0.72f
-            else -> 0.55f
-        }
-        val tintDraw: DrawScope.() -> Unit = remember(baseColor, alpha, topTintFloor, expandedOutlineLight, lightCardBacking) {
-            val brush = bottomLitGlassTintBrush(baseColor.copy(alpha = alpha), Float.POSITIVE_INFINITY,
-                topTintFloor = topTintFloor, expanded = expandedOutlineLight, colorTransform = ::tintOnBacking)
+        val tintSpec = nativeCourseCardTintSpec(
+            tintStrength = nativeMode.tintStrength,
+            hasWallpaper = hasWallpaper,
+            lightCardBacking = lightCardBacking != null,
+            hasCourse = course != null,
+            nativeEdgeEffects = nativeEdgeEffects,
+            hasBackdrop = localBackdrop != null,
+        )
+        val alpha = tintSpec.alpha
+        val topTintFloor = tintSpec.topTintFloor
+        val tintDraw: DrawScope.() -> Unit = remember(
+            baseColor,
+            alpha,
+            topTintFloor,
+            expandedOutlineLight,
+            tintSpec.translucentOverBackdrop,
+            lightCardBacking,
+        ) {
+            val brush = bottomLitGlassTintBrush(
+                baseColor.copy(alpha = alpha),
+                Float.POSITIVE_INFINITY,
+                topTintFloor = topTintFloor,
+                expanded = expandedOutlineLight,
+                colorTransform = if (tintSpec.translucentOverBackdrop) { it -> it } else ::tintOnBacking,
+            )
             val draw: DrawScope.() -> Unit = { drawRect(brush) }
             draw
         }
@@ -262,11 +302,18 @@ fun CourseGlassCard(
                 Rect(origin.x, origin.y, origin.x + position.size.width, origin.y + position.size.height)
             }
         } }
-        val background = rememberCourseTextBackground(baseColor, if (wallpaperCardGradient) alpha else alpha * topTintFloor,
-            lightCardBacking == null, nativeMode.blurRadiusPx, outline = wallpaperCardGradient, expanded = expandedOutlineLight,
+        val background = rememberCourseTextBackground(
+            baseColor,
+            if (wallpaperCardGradient) alpha else alpha * topTintFloor,
+            lightCardBacking == null || tintSpec.translucentOverBackdrop,
+            nativeMode.blurRadiusPx,
+            outline = wallpaperCardGradient,
+            expanded = expandedOutlineLight,
             flatBackground = pageBackground.takeUnless { hasWallpaper },
-            ready = true, cardBounds = cardBounds,
-            flatAccentTintAlpha = alpha.takeIf { readableFlatInk })
+            ready = true,
+            cardBounds = cardBounds,
+            flatAccentTintAlpha = alpha.takeIf { readableFlatInk },
+        )
         val preparedBackdrop = preparedWallpaper
         val renderer = com.xiaomanjun.sleepdownschedule.core.ui.designsystem.LocalNativeCourseCardRenderer.current
         if (renderer?.invoke(com.xiaomanjun.sleepdownschedule.core.ui.designsystem.NativeCourseCardRequest(
@@ -275,10 +322,9 @@ fun CourseGlassCard(
                 followTouch = followTouch,
                 externalTouch = externalTouch,
                 edgeEffects = nativeEdgeEffects,
-                // The opaque backing covers the body sample and feeds the caustic directly.
-                blurRadiusScale = if (lightCardBacking != null) 0f else 1f,
+                blurRadiusScale = tintSpec.blurRadiusScale,
                 followLightRadius = followLightRadius, backdrop = localBackdrop, blurRadius = nativeBlurRadius,
-                backdropSampleScale = editorSampleScale, causticTint = courseColor,
+                backdropSampleScale = editorSampleScale, causticTint = courseColor.takeIf { nativeCaustic },
                 preparedBackdrop = preparedBackdrop, flatBackdropColor = lightCardBacking
             )) {
                 CompositionLocalProvider(LocalCourseTextBackground provides background) { content() }
@@ -299,7 +345,8 @@ fun CourseGlassCard(
         return
     }
     val glassBackdrop = if (
-        courseLiquidGlassEnabled(config, dark) &&
+        config.courseCardGlassEnabled &&
+        hasWallpaper &&
         Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
     ) localBackdrop else null
     val simpleBlurBackdrop = if (
@@ -351,9 +398,9 @@ fun CourseGlassCard(
     }
     val liveCardAlpha = (previewState?.cardAlpha ?: config.cardAlpha).coerceIn(0f, 1f)
     val textSurfaceAlpha = when {
+        !hasWallpaper -> courseTintAlpha(liveCardAlpha.coerceAtLeast(FlatCourseCardMinimumAlpha))
         useGlass -> courseGlassTintAlpha(if (outlineLightEnabled) 0.75f else liveCardAlpha, quality, hasWallpaper) *
             courseCardBrightnessAttenuation(config.wallpaperBrightness, outlineLightEnabled)
-        !hasWallpaper -> courseTintAlpha(liveCardAlpha.coerceAtLeast(FlatCourseCardMinimumAlpha))
         simpleBlurBackdrop != null -> courseSimpleBlurTintAlpha(liveCardAlpha, quality, hasWallpaper)
         !config.courseCardGlassEnabled && !config.courseCardGaussianBlurEnabled ->
             liveCardAlpha.coerceAtLeast(if (hasWallpaper) 0.35f else 0.92f)
@@ -410,12 +457,11 @@ fun CourseGlassCard(
     )
     val configuredAlpha = config.cardAlpha
     val configuredBrightness = config.wallpaperBrightness
-    val gradientTint = courseGlassTintUsesGradient(useGlass, hasWallpaper, outlineLightEnabled)
     // Like Nexio's CourseCard, retain the actual surface callback, not only a wrapper.
     // Replacing a callback stored in snapshot state invalidates the sampled draw even if
     // its pixels are identical, which otherwise repeats work on unrelated recompositions.
     val liquidSurfaceDraw: DrawScope.() -> Unit = remember(previewState, configuredAlpha,
-        configuredBrightness, outlineLightEnabled, gradientTint, quality, hasWallpaper, baseColor,
+        configuredBrightness, outlineLightEnabled, quality, hasWallpaper, baseColor,
         expandedOutlineLight, lightGlass) {
         var cachedTint = Color.Unspecified
         var cachedHeight = Float.NaN
@@ -430,7 +476,7 @@ fun CourseGlassCard(
         val tintAlpha = courseGlassTintAlpha(tintStrength, quality, hasWallpaper) *
             brightnessAttenuation
         val tint = baseColor.copy(alpha = tintAlpha)
-        if (gradientTint) {
+        if (outlineLightEnabled) {
             if (cachedTint != tint || cachedHeight != size.height) {
                 cachedTint = tint
                 cachedHeight = size.height
