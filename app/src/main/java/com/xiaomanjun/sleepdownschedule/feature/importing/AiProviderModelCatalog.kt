@@ -70,10 +70,19 @@ internal object AiProviderModelCatalog {
 
 internal fun AiProviderProfile.withModelCatalog(catalog: List<AiModelOption>): AiProviderProfile {
     if (catalog.isEmpty()) return this
+    val presetDefaultIds = AiProviderPresets.modelOptions(id).mapTo(mutableSetOf()) { it.model.lowercase() }
+    val userAddedModels = availableModels
+        .map(String::trim)
+        .filter { modelId ->
+            modelId.isNotBlank() && modelId.lowercase() !in presetDefaultIds
+        }
     val selected = catalog.firstOrNull { it.model.equals(defaultModel.trim(), ignoreCase = true) }
     return copy(
         modelCatalog = catalog,
-        availableModels = (catalog.map { it.model } + defaultModel).filter(String::isNotBlank).distinct(),
+        availableModels = (catalog.map { it.model } + userAddedModels + defaultModel)
+            .map(String::trim)
+            .filter(String::isNotBlank)
+            .distinctBy(String::lowercase),
         supportsVision = selected?.supportsImageInput ?: supportsVision,
         capabilities = capabilities.copy(supportsImageInput = selected?.supportsImageInput ?: capabilities.supportsImageInput)
     )

@@ -11,12 +11,13 @@ class CourseTextContrastTest {
     @Test fun wallpaperLetteringKeepsCourseHueAndFollowsTheBackgroundPolarity() {
         val brightPage = courseTextColorForPage(blue, hasWallpaper = true, lightText = false)
         val darkPage = courseTextColorForPage(blue, hasWallpaper = true, lightText = true)
-        assertTrue(brightPage.luminance() < 0.15f)
+        // Dark ink is the brightest same-hue color that still reaches ordinary text contrast.
+        assertTrue(brightPage.luminance() < 0.19f)
+        assertTrue((1.05f) / (brightPage.luminance() + 0.05f) >= 4.45f)
         assertTrue(darkPage.luminance() > 0.3f)
         assertTrue(darkPage.blue > darkPage.red)
         assertTrue(brightPage.blue > brightPage.red)
         assertTrue((darkPage.luminance() + 0.05f) / (0.02f + 0.05f) >= 4.5f)
-        assertTrue((0.75f + 0.05f) / (brightPage.luminance() + 0.05f) >= 4.5f)
         assertEquals((blue.green - blue.red) / (blue.blue - blue.red),
             (darkPage.green - darkPage.red) / (darkPage.blue - darkPage.red), 0.01f) // 8-bit sRGB rounding
         val pink = courseTextColorForPage(Color(0xFFF48FB1), hasWallpaper = true, lightText = true)

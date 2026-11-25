@@ -1,6 +1,172 @@
+diff --git a/miuix-blur/src/commonMain/kotlin/top/yukonga/miuix/kmp/blur/DrawBackdropModifier.kt b/miuix-blur/src/commonMain/kotlin/top/yukonga/miuix/kmp/blur/DrawBackdropModifier.kt
+index 0050221..e95d53e 100644
+--- a/miuix-blur/src/commonMain/kotlin/top/yukonga/miuix/kmp/blur/DrawBackdropModifier.kt
++++ b/miuix-blur/src/commonMain/kotlin/top/yukonga/miuix/kmp/blur/DrawBackdropModifier.kt
+@@ -14,11 +14,15 @@ import androidx.compose.ui.geometry.Rect
+ import androidx.compose.ui.graphics.BlendMode
+ import androidx.compose.ui.graphics.CompositingStrategy
+ import androidx.compose.ui.graphics.GraphicsLayerScope
++import androidx.compose.ui.graphics.Outline
+ import androidx.compose.ui.graphics.Paint
++import androidx.compose.ui.graphics.Path
+ import androidx.compose.ui.graphics.RenderEffect
+ import androidx.compose.ui.graphics.Shape
+ import androidx.compose.ui.graphics.drawscope.ContentDrawScope
+ import androidx.compose.ui.graphics.drawscope.DrawScope
++import androidx.compose.ui.graphics.drawscope.clipPath
++import androidx.compose.ui.graphics.drawscope.clipRect
+ import androidx.compose.ui.graphics.drawscope.scale
+ import androidx.compose.ui.graphics.drawscope.translate
+ import androidx.compose.ui.graphics.graphicsLayer
+@@ -87,6 +91,7 @@ fun Modifier.drawBackdrop(
+     onDrawSurface: (DrawScope.() -> Unit)? = null,
+     onDrawFront: (DrawScope.() -> Unit)? = null,
+     contentBlendMode: BlendMode = BlendMode.SrcOver,
++    clipToBounds: Boolean = true,
+     enabled: Boolean = true,
+ ): Modifier {
+     // The effect pipeline (blur / blend / highlight / custom passes) is built on RuntimeShader.
+@@ -107,6 +112,7 @@ fun Modifier.drawBackdrop(
+                 onDrawSurface = onDrawSurface,
+                 onDrawFront = onDrawFront,
+                 contentBlendMode = contentBlendMode,
++                clipToBounds = clipToBounds,
+                 enabled = effectiveEnabled,
+             ),
+         )
+@@ -123,6 +129,7 @@ private class DrawBackdropElement(
+     val onDrawSurface: (DrawScope.() -> Unit)?,
+     val onDrawFront: (DrawScope.() -> Unit)?,
+     val contentBlendMode: BlendMode = BlendMode.SrcOver,
++    val clipToBounds: Boolean = true,
+     val enabled: Boolean = true,
+ ) : ModifierNodeElement<DrawBackdropNode>() {
+ 
+@@ -137,11 +144,13 @@ private class DrawBackdropElement(
+         onDrawSurface = onDrawSurface,
+         onDrawFront = onDrawFront,
+         contentBlendMode = contentBlendMode,
++        clipToBounds = clipToBounds,
+         enabled = enabled,
+     )
+ 
+     override fun update(node: DrawBackdropNode) {
+         val enabledChanged = node.enabled != enabled
++        val clipToBoundsChanged = node.clipToBounds != clipToBounds
+         node.backdrop = backdrop
+         node.updateShape(shape)
+         node.effects = effects
+@@ -152,8 +161,9 @@ private class DrawBackdropElement(
+         node.onDrawSurface = onDrawSurface
+         node.onDrawFront = onDrawFront
+         node.contentBlendMode = contentBlendMode
++        node.clipToBounds = clipToBounds
+         node.enabled = enabled
+-        if (enabledChanged) {
++        if (enabledChanged || clipToBoundsChanged) {
+             if (!enabled) {
+                 node.releaseGraphicsLayers()
+             }
+@@ -181,6 +191,7 @@ private class DrawBackdropElement(
+         if (onDrawSurface != other.onDrawSurface) return false
+         if (onDrawFront != other.onDrawFront) return false
+         if (contentBlendMode != other.contentBlendMode) return false
++        if (clipToBounds != other.clipToBounds) return false
+         if (enabled != other.enabled) return false
+         return true
+     }
+@@ -196,6 +207,7 @@ private class DrawBackdropElement(
+         result = 31 * result + (onDrawSurface?.hashCode() ?: 0)
+         result = 31 * result + (onDrawFront?.hashCode() ?: 0)
+         result = 31 * result + contentBlendMode.hashCode()
++        result = 31 * result + clipToBounds.hashCode()
+         result = 31 * result + enabled.hashCode()
+         return result
+     }
+@@ -212,6 +224,7 @@ private class DrawBackdropNode(
+     var onDrawSurface: (DrawScope.() -> Unit)?,
+     var onDrawFront: (DrawScope.() -> Unit)?,
+     var contentBlendMode: BlendMode = BlendMode.SrcOver,
++    var clipToBounds: Boolean = true,
+     var enabled: Boolean = true,
+ ) : Modifier.Node(),
+     LayoutModifierNode,
+@@ -318,7 +331,7 @@ private class DrawBackdropNode(
+     private var blendFactor: Float by mutableFloatStateOf(0f)
+ 
+     private val layoutLayerBlock: GraphicsLayerScope.() -> Unit = {
+-        clip = true
++        clip = clipToBounds
+         shape = shapeProvider.shape
+         compositingStrategy = CompositingStrategy.Offscreen
+     }
+@@ -502,11 +515,26 @@ private class DrawBackdropNode(
+     // plain class, so caching it avoids a per-frame allocation; rebuilt only when the size changes.
+     private var contentBoundsRect: Rect? = null
+ 
+-    override fun ContentDrawScope.draw() {
+-        if (!enabled) {
+-            drawContent()
+-            return
++    private fun ContentDrawScope.clipToSurfaceShape(block: ContentDrawScope.() -> Unit) {
++        when (val outline = shapeProvider.shape.createOutline(size, layoutDirection, this)) {
++            is Outline.Rectangle -> clipRect(
++                left = outline.rect.left,
++                top = outline.rect.top,
++                right = outline.rect.right,
++                bottom = outline.rect.bottom
++            ) {
++                this@clipToSurfaceShape.block()
++            }
++            is Outline.Rounded -> clipPath(Path().apply { addRoundRect(outline.roundRect) }) {
++                this@clipToSurfaceShape.block()
++            }
++            is Outline.Generic -> clipPath(outline.path) {
++                this@clipToSurfaceShape.block()
++            }
+         }
++    }
++
++    private fun ContentDrawScope.drawSurfaceContent() {
+         if (effectScope.update(this)) {
+             updateEffects()
+         }
+@@ -532,7 +560,8 @@ private class DrawBackdropNode(
+         } else {
+             val w = size.width
+             val h = size.height
+-            val bounds = contentBoundsRect?.takeIf { it.right == w && it.bottom == h } ?: Rect(0f, 0f, w, h).also { contentBoundsRect = it }
++            val bounds = contentBoundsRect?.takeIf { it.right == w && it.bottom == h }
++                ?: Rect(0f, 0f, w, h).also { contentBoundsRect = it }
+             contentPaint.blendMode = contentBlendMode
+             drawContext.canvas.saveLayer(bounds, contentPaint)
+             drawContent()
+@@ -553,6 +582,20 @@ private class DrawBackdropNode(
+         onDrawFront?.invoke(this)
+     }
+ 
++    override fun ContentDrawScope.draw() {
++        if (!enabled) {
++            drawContent()
++            return
++        }
++        if (clipToBounds) {
++            drawSurfaceContent()
++        } else {
++            // The layer itself remains overflow-capable for press/morph transforms, while the
++            // actual glass pixels keep the capsule/shape mask in local coordinates.
++            clipToSurfaceShape { drawSurfaceContent() }
++        }
++    }
++
+     override fun onGloballyPositioned(coordinates: LayoutCoordinates) {
+         if (coordinates.isAttached) {
+             if (backdrop.isCoordinatesDependent) {
+diff --git a/miuix-preference/src/commonMain/kotlin/top/yukonga/miuix/kmp/popup/OverlayDropdownPopup.kt b/miuix-preference/src/commonMain/kotlin/top/yukonga/miuix/kmp/popup/OverlayDropdownPopup.kt
+index 2625662..ae0c780 100644
 --- a/miuix-preference/src/commonMain/kotlin/top/yukonga/miuix/kmp/popup/OverlayDropdownPopup.kt
 +++ b/miuix-preference/src/commonMain/kotlin/top/yukonga/miuix/kmp/popup/OverlayDropdownPopup.kt
-@@ -20,6 +20,8 @@
+@@ -20,6 +20,8 @@ import androidx.compose.ui.unit.dp
  import top.yukonga.miuix.kmp.basic.DropdownColors
  import top.yukonga.miuix.kmp.basic.DropdownEntry
  import top.yukonga.miuix.kmp.basic.ListPopupColumn
@@ -9,7 +175,7 @@
  import top.yukonga.miuix.kmp.basic.PopupPositionProvider
  import top.yukonga.miuix.kmp.basic.TextButton
  import top.yukonga.miuix.kmp.overlay.OverlayDialog
-@@ -40,7 +42,12 @@
+@@ -40,7 +42,12 @@ fun OverlayDropdownPopup(
      maxHeight: Dp?,
      dropdownColors: DropdownColors,
      renderInRootScaffold: Boolean,
@@ -22,7 +188,7 @@
  ) {
      val entries = remember(entry) { listOf(entry) }
      OverlayDropdownPopup(
-@@ -51,7 +58,12 @@
+@@ -51,7 +58,12 @@ fun OverlayDropdownPopup(
          maxHeight = maxHeight,
          dropdownColors = dropdownColors,
          renderInRootScaffold = renderInRootScaffold,
@@ -35,7 +201,7 @@
      )
  }
  
-@@ -69,7 +81,12 @@
+@@ -69,7 +81,12 @@ fun OverlayDropdownPopup(
      maxHeight: Dp?,
      dropdownColors: DropdownColors,
      renderInRootScaffold: Boolean,
@@ -48,7 +214,7 @@
  ) {
      val hapticFeedback = LocalHapticFeedback.current
      val currentEntries by rememberUpdatedState(entries)
-@@ -78,7 +95,7 @@
+@@ -78,7 +95,7 @@ fun OverlayDropdownPopup(
      val currentHapticFeedback by rememberUpdatedState(hapticFeedback)
      val onItemClicked: (Int, Int) -> Unit = remember {
          { entryIdx, itemIdx ->
@@ -57,7 +223,7 @@
              currentEntries.getOrNull(entryIdx)?.let { entry ->
                  entry.items.getOrNull(itemIdx)?.onClick?.invoke()
              }
-@@ -94,6 +111,12 @@
+@@ -94,6 +111,12 @@ fun OverlayDropdownPopup(
          onDismissFinished = onDismissFinished,
          maxHeight = maxHeight,
          renderInRootScaffold = renderInRootScaffold,
@@ -70,6 +236,8 @@
      ) {
          ListPopupColumn {
              DropdownEntriesPopupContent(
+diff --git a/miuix-preference/src/commonMain/kotlin/top/yukonga/miuix/kmp/preference/OverlayDropdownPreference.kt b/miuix-preference/src/commonMain/kotlin/top/yukonga/miuix/kmp/preference/OverlayDropdownPreference.kt
+index e1f4230..8ca895a 100644
 --- a/miuix-preference/src/commonMain/kotlin/top/yukonga/miuix/kmp/preference/OverlayDropdownPreference.kt
 +++ b/miuix-preference/src/commonMain/kotlin/top/yukonga/miuix/kmp/preference/OverlayDropdownPreference.kt
 @@ -3,22 +3,35 @@
@@ -108,7 +276,7 @@
  import top.yukonga.miuix.kmp.basic.BasicComponent
  import top.yukonga.miuix.kmp.basic.BasicComponentColors
  import top.yukonga.miuix.kmp.basic.BasicComponentDefaults
-@@ -27,9 +40,67 @@
+@@ -27,10 +40,68 @@ import top.yukonga.miuix.kmp.basic.DropdownColors
  import top.yukonga.miuix.kmp.basic.DropdownDefaults
  import top.yukonga.miuix.kmp.basic.DropdownEntry
  import top.yukonga.miuix.kmp.basic.DropdownItem
@@ -117,7 +285,7 @@
  import top.yukonga.miuix.kmp.basic.Text
  import top.yukonga.miuix.kmp.popup.OverlayDropdownPopup
  import top.yukonga.miuix.kmp.theme.MiuixTheme
-+
+ 
 +@Composable
 +private fun rememberPopupTriggerTransferred(show: Boolean, morph: Boolean): MutableState<Boolean> {
 +    val transferred = remember { mutableStateOf(false) }
@@ -173,10 +341,11 @@
 +    }
 +    return contentAlpha.value
 +}
- 
++
  /**
   * A dropdown with a title and a summary.
-@@ -71,6 +142,8 @@
+  *
+@@ -71,6 +142,8 @@ fun OverlayDropdownPreference(
      enabled: Boolean = true,
      showValue: Boolean = true,
      renderInRootScaffold: Boolean = true,
@@ -185,7 +354,7 @@
      onExpandedChange: ((Boolean) -> Unit)? = null,
      onSelectedIndexChange: ((Int) -> Unit)? = null,
  ) {
-@@ -104,6 +177,8 @@
+@@ -104,6 +177,8 @@ fun OverlayDropdownPreference(
          enabled = enabled,
          showValue = showValue,
          renderInRootScaffold = renderInRootScaffold,
@@ -194,7 +363,7 @@
          collapseOnSelection = true,
          onExpandedChange = onExpandedChange,
      )
-@@ -125,6 +200,8 @@
+@@ -125,6 +200,8 @@ fun OverlayDropdownPreference(
      enabled: Boolean = true,
      showValue: Boolean = true,
      renderInRootScaffold: Boolean = true,
@@ -203,7 +372,7 @@
      collapseOnSelection: Boolean = true,
      onExpandedChange: ((Boolean) -> Unit)? = null,
  ) {
-@@ -143,6 +220,13 @@
+@@ -143,6 +220,13 @@ fun OverlayDropdownPreference(
          }
      }
  
@@ -217,7 +386,7 @@
      val itemsNotEmpty = entry.items.isNotEmpty()
      val actualEnabled = enabled && itemsNotEmpty
  
-@@ -174,41 +258,59 @@
+@@ -174,41 +258,59 @@ fun OverlayDropdownPreference(
          summaryColor = summaryColor,
          startAction = startAction,
          endActions = {
@@ -246,15 +415,14 @@
                          textAlign = TextAlign.End,
                      )
                  }
--            }
--            DropdownArrowEndAction(
--                actionColor = actionColor,
--            )
 +                DropdownArrowEndAction(
 +                    actionColor = actionColor,
 +                    modifier = Modifier.graphicsLayer { alpha = if (popupVisualStyle.holdAnchor) anchorContentAlpha else 1f },
 +                )
-+            }
+             }
+-            DropdownArrowEndAction(
+-                actionColor = actionColor,
+-            )
              if (itemsNotEmpty) {
                  OverlayDropdownPopup(
                      entry = entry,
@@ -288,7 +456,7 @@
          enabled = actualEnabled,
      )
  }
-@@ -229,6 +331,8 @@
+@@ -229,6 +331,8 @@ fun OverlayDropdownPreference(
      enabled: Boolean = true,
      showValue: Boolean = true,
      renderInRootScaffold: Boolean = true,
@@ -297,7 +465,7 @@
      collapseOnSelection: Boolean = entries.size <= 1,
      onExpandedChange: ((Boolean) -> Unit)? = null,
  ) {
-@@ -247,8 +351,14 @@
+@@ -247,8 +351,14 @@ fun OverlayDropdownPreference(
          }
      }
  
@@ -312,7 +480,7 @@
      val actualEnabled = enabled && hasEntries
  
      val actionColor = if (actualEnabled) {
-@@ -279,43 +389,65 @@
+@@ -279,43 +389,65 @@ fun OverlayDropdownPreference(
          summaryColor = summaryColor,
          startAction = startAction,
          endActions = {
@@ -335,11 +503,6 @@
 -                    fontSize = MiuixTheme.textStyles.body2.fontSize,
 -                    color = actionColor,
 -                    textAlign = TextAlign.End,
--                )
--            }
--            DropdownArrowEndAction(
--                actionColor = actionColor,
--            )
 +                    actionColor = actionColor,
 +                    modifier = Modifier.graphicsLayer { alpha = if (triggerTransferred.value) 0f else 1f },
 +                )
@@ -358,8 +521,11 @@
 +                DropdownArrowEndAction(
 +                    actionColor = actionColor,
 +                    modifier = Modifier.graphicsLayer { alpha = if (popupVisualStyle.holdAnchor) anchorContentAlpha else 1f },
-+                )
-+            }
+                 )
+             }
+-            DropdownArrowEndAction(
+-                actionColor = actionColor,
+-            )
              if (hasEntries) {
                  OverlayDropdownPopup(
                      entries = nonEmptyEntries,
@@ -393,6 +559,8 @@
          enabled = actualEnabled,
      )
  }
+diff --git a/miuix-ui/src/commonMain/kotlin/top/yukonga/miuix/kmp/basic/Component.kt b/miuix-ui/src/commonMain/kotlin/top/yukonga/miuix/kmp/basic/Component.kt
+index c97844f..86e0473 100644
 --- a/miuix-ui/src/commonMain/kotlin/top/yukonga/miuix/kmp/basic/Component.kt
 +++ b/miuix-ui/src/commonMain/kotlin/top/yukonga/miuix/kmp/basic/Component.kt
 @@ -3,6 +3,7 @@
@@ -403,7 +571,7 @@
  import androidx.compose.foundation.clickable
  import androidx.compose.foundation.interaction.MutableInteractionSource
  import androidx.compose.foundation.layout.Arrangement
-@@ -50,6 +51,7 @@
+@@ -50,6 +51,7 @@ import top.yukonga.miuix.kmp.theme.MiuixTheme
   * @param onClickLabel Optional label describing the click action for accessibility services.
   * @param role The semantic [Role] of the [BasicComponent] for accessibility services.
   * @param holdDownState Used to determine whether it is in the pressed state.
@@ -411,7 +579,7 @@
   * @param enabled Whether the [BasicComponent] is enabled.
   * @param interactionSource The [MutableInteractionSource] for the [BasicComponent].
   *   The value should remain null or non-null for the lifetime of this component;
-@@ -72,6 +74,7 @@
+@@ -72,6 +74,7 @@ fun BasicComponent(
      holdDownState: Boolean = false,
      enabled: Boolean = true,
      interactionSource: MutableInteractionSource? = null,
@@ -419,7 +587,7 @@
  ) {
      BasicComponent(
          startAction = startAction,
-@@ -85,6 +88,7 @@
+@@ -85,6 +88,7 @@ fun BasicComponent(
          holdDownState = holdDownState,
          enabled = enabled,
          interactionSource = interactionSource,
@@ -427,7 +595,7 @@
      ) {
          if (title != null) {
              Text(
-@@ -116,6 +120,7 @@
+@@ -116,6 +120,7 @@ fun BasicComponent(
   * @param onClickLabel Optional label describing the click action for accessibility services.
   * @param role The semantic [Role] of the [BasicComponent] for accessibility services.
   * @param holdDownState Used to determine whether it is in the pressed state.
@@ -435,7 +603,7 @@
   * @param enabled Whether the [BasicComponent] is enabled.
   * @param interactionSource The [MutableInteractionSource] for the [BasicComponent].
   *   The value should remain null or non-null for the lifetime of this component;
-@@ -135,6 +140,7 @@
+@@ -135,6 +140,7 @@ fun BasicComponent(
      holdDownState: Boolean = false,
      enabled: Boolean = true,
      interactionSource: MutableInteractionSource? = null,
@@ -443,7 +611,7 @@
      content: @Composable ColumnScope.() -> Unit,
  ) {
      @Suppress("NAME_SHADOWING")
-@@ -143,10 +149,12 @@
+@@ -143,10 +149,12 @@ fun BasicComponent(
  
      HoldDownObserver(holdDownState, interactionSource)
  
@@ -457,6 +625,8 @@
                  onClickLabel = onClickLabel,
                  role = role,
                  onClick = { currentOnClick?.invoke() },
+diff --git a/miuix-ui/src/commonMain/kotlin/top/yukonga/miuix/kmp/basic/Dropdown.kt b/miuix-ui/src/commonMain/kotlin/top/yukonga/miuix/kmp/basic/Dropdown.kt
+index 0a2fa72..d0a8462 100644
 --- a/miuix-ui/src/commonMain/kotlin/top/yukonga/miuix/kmp/basic/Dropdown.kt
 +++ b/miuix-ui/src/commonMain/kotlin/top/yukonga/miuix/kmp/basic/Dropdown.kt
 @@ -4,6 +4,8 @@
@@ -468,7 +638,7 @@
  import androidx.compose.foundation.layout.Arrangement
  import androidx.compose.foundation.layout.Column
  import androidx.compose.foundation.layout.Row
-@@ -14,8 +16,15 @@
+@@ -14,8 +16,15 @@ import androidx.compose.foundation.layout.padding
  import androidx.compose.foundation.layout.size
  import androidx.compose.foundation.layout.sizeIn
  import androidx.compose.foundation.layout.widthIn
@@ -485,7 +655,7 @@
  import androidx.compose.runtime.Immutable
  import androidx.compose.runtime.NonRestartableComposable
  import androidx.compose.runtime.Stable
-@@ -25,6 +34,7 @@
+@@ -25,6 +34,7 @@ import androidx.compose.runtime.rememberUpdatedState
  import androidx.compose.ui.Alignment
  import androidx.compose.ui.Modifier
  import androidx.compose.ui.draw.drawBehind
@@ -493,7 +663,7 @@
  import androidx.compose.ui.graphics.BlendMode
  import androidx.compose.ui.graphics.BlendModeColorFilter
  import androidx.compose.ui.graphics.Color
-@@ -34,8 +44,9 @@
+@@ -34,8 +44,9 @@ import androidx.compose.ui.text.font.FontWeight
  import androidx.compose.ui.unit.Dp
  import androidx.compose.ui.unit.DpSize
  import androidx.compose.ui.unit.dp
@@ -504,7 +674,7 @@
  import top.yukonga.miuix.kmp.icon.basic.ArrowUpDown
  import top.yukonga.miuix.kmp.icon.basic.Check
  import top.yukonga.miuix.kmp.theme.MiuixTheme
-@@ -91,19 +102,8 @@
+@@ -91,19 +102,8 @@ fun DropdownImpl(
      isLast: Boolean = index == optionSize - 1,
      onSelectedIndexChange: (Int) -> Unit,
  ) {
@@ -526,7 +696,7 @@
      val backgroundColor = if (isSelected) {
          dropdownColors.selectedContainerColor
      } else {
-@@ -129,39 +129,83 @@
+@@ -129,39 +129,83 @@ fun DropdownImpl(
          else -> dropdownColors.summaryColor
      }
  
@@ -621,7 +791,7 @@
              verticalAlignment = Alignment.CenterVertically,
              horizontalArrangement = Arrangement.Start,
          ) {
-@@ -169,8 +213,9 @@
+@@ -169,8 +213,9 @@ fun DropdownImpl(
              Column {
                  Text(
                      text = item.text,
@@ -633,7 +803,7 @@
                      color = titleColor,
                  )
                  item.summary?.let {
-@@ -184,9 +229,7 @@
+@@ -184,9 +229,7 @@ fun DropdownImpl(
          }
  
          if (hasSubmenu) {
@@ -644,7 +814,7 @@
              val chevronColor = when {
                  !enabled -> MiuixTheme.colorScheme.disabledOnSecondaryVariant
                  isSelected -> dropdownColors.selectedContentColor
-@@ -197,7 +240,7 @@
+@@ -197,7 +240,7 @@ fun DropdownImpl(
              }
              Image(
                  modifier = ChevronIconBaseModifier,
@@ -653,7 +823,7 @@
                  colorFilter = chevronColorFilter,
                  contentDescription = null,
              )
-@@ -344,6 +387,7 @@
+@@ -344,6 +387,7 @@ data class DropdownItem(
      val icon: @Composable ((Modifier) -> Unit)? = null,
      val summary: String? = null,
      val children: List<DropdownItem>? = null,
@@ -661,11 +831,10 @@
  ) {
      /**
       * [SpinnerEntry] compatibility
-@@ -358,6 +402,18 @@
-         summary = summary,
+@@ -359,6 +403,18 @@ data class DropdownItem(
      )
  }
-+
+ 
 +/** Optional platform body. Positioning, slide selection and menu transitions stay in this host. */
 +data class DropdownRowContentRequest(
 +    val item: DropdownItem,
@@ -677,9 +846,12 @@
 +    val last: Boolean = false,
 +    val indicatorRotation: () -> Float = { 0f },
 +)
- 
++
  object DropdownDefaults {
      /** Minimum row height when the dropdown is shown in dialog mode. */
+     val MinHeight: Dp = 56.dp
+diff --git a/miuix-ui/src/commonMain/kotlin/top/yukonga/miuix/kmp/basic/ListPopup.kt b/miuix-ui/src/commonMain/kotlin/top/yukonga/miuix/kmp/basic/ListPopup.kt
+index 6ec1abe..e82074d 100644
 --- a/miuix-ui/src/commonMain/kotlin/top/yukonga/miuix/kmp/basic/ListPopup.kt
 +++ b/miuix-ui/src/commonMain/kotlin/top/yukonga/miuix/kmp/basic/ListPopup.kt
 @@ -3,10 +3,13 @@
@@ -696,7 +868,7 @@
  import androidx.compose.foundation.layout.Box
  import androidx.compose.foundation.layout.IntrinsicSize
  import androidx.compose.foundation.layout.PaddingValues
-@@ -14,19 +17,28 @@
+@@ -14,19 +17,28 @@ import androidx.compose.foundation.layout.WindowInsets
  import androidx.compose.foundation.layout.captionBar
  import androidx.compose.foundation.layout.displayCutout
  import androidx.compose.foundation.layout.height
@@ -725,7 +897,7 @@
  import androidx.compose.ui.graphics.drawscope.translate
  import androidx.compose.ui.graphics.graphicsLayer
  import androidx.compose.ui.layout.IntrinsicMeasurable
-@@ -39,8 +51,13 @@
+@@ -39,8 +51,13 @@ import androidx.compose.ui.layout.MeasureScope
  import androidx.compose.ui.layout.Placeable
  import androidx.compose.ui.layout.onGloballyPositioned
  import androidx.compose.ui.platform.LocalDensity
@@ -739,7 +911,7 @@
  import androidx.compose.ui.unit.Constraints
  import androidx.compose.ui.unit.Dp
  import androidx.compose.ui.unit.IntOffset
-@@ -52,6 +69,8 @@
+@@ -52,6 +69,8 @@ import top.yukonga.miuix.kmp.anim.SinOutEasing
  import top.yukonga.miuix.kmp.squircle.addSquircleRect
  import top.yukonga.miuix.kmp.squircle.isSquircleEnabled
  import top.yukonga.miuix.kmp.theme.MiuixTheme
@@ -748,7 +920,7 @@
  import kotlin.math.abs
  import kotlin.math.min
  
-@@ -68,7 +87,33 @@
+@@ -68,7 +87,33 @@ private fun PopupPositionProvider.Align.resolve(layoutDirection: LayoutDirection
  }
  
  private const val MAX_ITEMS_FOR_WIDTH = 8
@@ -783,7 +955,7 @@
  
  /**
   * A column that automatically aligns the width to the widest item.
-@@ -80,6 +125,15 @@
+@@ -80,6 +125,15 @@ fun ListPopupColumn(
      content: @Composable () -> Unit,
  ) {
      val scrollState = rememberScrollState()
@@ -799,21 +971,20 @@
  
      val measurePolicy = remember {
          object : MeasurePolicy {
-@@ -133,9 +187,10 @@
+@@ -133,9 +187,10 @@ fun ListPopupColumn(
                      val w = measurables[i].maxIntrinsicWidth(Int.MAX_VALUE)
                      if (w > maxIntrinsic) maxIntrinsic = w
                  }
 -                val listWidth = maxIntrinsic.coerceIn(minPx, maxPx)
--
--                val heightCount = min(MAX_ITEMS_FOR_HEIGHT, measurables.size)
 +                val listWidth = if (width == Constraints.Infinity) maxIntrinsic.coerceIn(minPx, maxPx)
 +                    else width.coerceIn(0, maxPx)
-+
+ 
+-                val heightCount = min(MAX_ITEMS_FOR_HEIGHT, measurables.size)
 +                val heightCount = measurables.size
                  var height = 0
                  for (i in 0 until heightCount) {
                      height += measurables[i].minIntrinsicHeight(listWidth)
-@@ -146,11 +201,17 @@
+@@ -146,11 +201,17 @@ fun ListPopupColumn(
      }
  
      Layout(
@@ -833,7 +1004,7 @@
          measurePolicy = measurePolicy,
      )
  }
-@@ -196,20 +257,34 @@
+@@ -196,20 +257,34 @@ interface PopupPositionProvider {
  }
  
  object ListPopupDefaults {
@@ -874,7 +1045,7 @@
  
      /** Default animation spec used to settle the popup back to its resting state after a gesture. */
      val ResetAnimationSpec = spring(dampingRatio = 0.82f, stiffness = 362.5f, visibilityThreshold = 0.0001f)
-@@ -234,7 +309,7 @@
+@@ -234,7 +309,7 @@ object ListPopupDefaults {
       * @param horizontalMargin The extra horizontal margin applied to the popup.
       */
      fun dropdownPositionProvider(
@@ -883,7 +1054,7 @@
          horizontalMargin: Dp = 0.dp,
      ): PopupPositionProvider = object : PopupPositionProvider {
          private val margins = PaddingValues(horizontal = horizontalMargin, vertical = verticalMargin)
-@@ -409,6 +484,7 @@
+@@ -409,6 +484,7 @@ fun rememberListPopupLayoutInfo(
      val statusBars = WindowInsets.statusBars
      val navigationBars = WindowInsets.navigationBars
      val captionBar = WindowInsets.captionBar
@@ -891,7 +1062,7 @@
  
      val margins = popupPositionProvider.getMargins()
      val popupMargin = remember(layoutDirection, density, margins) {
-@@ -423,6 +499,8 @@
+@@ -423,6 +499,8 @@ fun rememberListPopupLayoutInfo(
      }
  
      val containerSize = windowInfo.containerSize
@@ -900,7 +1071,7 @@
  
      val windowBounds = remember(
          layoutDirection,
-@@ -431,6 +509,8 @@
+@@ -431,6 +509,8 @@ fun rememberListPopupLayoutInfo(
          statusBars,
          navigationBars,
          captionBar,
@@ -909,7 +1080,7 @@
          containerSize,
      ) {
          with(density) {
-@@ -438,7 +518,8 @@
+@@ -438,7 +518,8 @@ fun rememberListPopupLayoutInfo(
                  left = displayCutout.getLeft(this, layoutDirection),
                  top = statusBars.getTop(this),
                  right = containerSize.width - displayCutout.getRight(this, layoutDirection),
@@ -919,7 +1090,7 @@
              )
          }
      }
-@@ -599,29 +680,111 @@
+@@ -599,29 +680,111 @@ fun ListPopupContent(
      popupLayoutPosition: PopupLayoutPosition,
      localTransformOrigin: TransformOrigin,
      modifier: Modifier = Modifier,
@@ -1002,15 +1173,14 @@
                  scaleY = scale
                  alpha = alphaProgress()
 -                transformOrigin = localTransformOrigin
--            }
--            .popupClipReveal(fractionProgress, popupLayoutPosition, cornerRadius, isSquircleEnabled())
 +                transformOrigin = TransformOrigin(
 +                    pivotFractionX = localTransformOrigin.pivotFractionX +
 +                        (0.5f - localTransformOrigin.pivotFractionX) * fraction,
 +                    pivotFractionY = localTransformOrigin.pivotFractionY +
 +                        (0.5f - localTransformOrigin.pivotFractionY) * fraction,
 +                )
-+            }
+             }
+-            .popupClipReveal(fractionProgress, popupLayoutPosition, cornerRadius, isSquircleEnabled())
 +            .popupClipReveal(
 +                fractionProgress = fractionProgress,
 +                popupLayoutPosition = popupLayoutPosition,
@@ -1039,7 +1209,7 @@
      }
  }
  
-@@ -639,35 +802,36 @@
+@@ -639,35 +802,36 @@ internal fun Modifier.popupClipReveal(
      popupLayoutPosition: PopupLayoutPosition,
      cornerRadius: Dp,
      squircleEnabled: Boolean,
@@ -1085,7 +1255,7 @@
              }
          } else {
              translate(top = clipStart) {
-@@ -675,6 +839,7 @@
+@@ -675,6 +839,7 @@ internal fun Modifier.popupClipReveal(
                      translate(top = -clipStart) {
                          this@onDrawWithContent.drawContent()
                      }
@@ -1093,6 +1263,9 @@
                  }
              }
          }
+diff --git a/miuix-ui/src/commonMain/kotlin/top/yukonga/miuix/kmp/basic/PopupMorphContent.kt b/miuix-ui/src/commonMain/kotlin/top/yukonga/miuix/kmp/basic/PopupMorphContent.kt
+new file mode 100644
+index 0000000..0b811ac
 --- /dev/null
 +++ b/miuix-ui/src/commonMain/kotlin/top/yukonga/miuix/kmp/basic/PopupMorphContent.kt
 @@ -0,0 +1,217 @@
@@ -1313,6 +1486,9 @@
 +        }
 +    }
 +}
+diff --git a/miuix-ui/src/commonMain/kotlin/top/yukonga/miuix/kmp/basic/PopupSlideSelection.kt b/miuix-ui/src/commonMain/kotlin/top/yukonga/miuix/kmp/basic/PopupSlideSelection.kt
+new file mode 100644
+index 0000000..3044022
 --- /dev/null
 +++ b/miuix-ui/src/commonMain/kotlin/top/yukonga/miuix/kmp/basic/PopupSlideSelection.kt
 @@ -0,0 +1,115 @@
@@ -1431,9 +1607,11 @@
 +            } finally { hover.cancel() }
 +        }
 +    }
+diff --git a/miuix-ui/src/commonMain/kotlin/top/yukonga/miuix/kmp/basic/Scaffold.kt b/miuix-ui/src/commonMain/kotlin/top/yukonga/miuix/kmp/basic/Scaffold.kt
+index aff644d..9ba948b 100644
 --- a/miuix-ui/src/commonMain/kotlin/top/yukonga/miuix/kmp/basic/Scaffold.kt
 +++ b/miuix-ui/src/commonMain/kotlin/top/yukonga/miuix/kmp/basic/Scaffold.kt
-@@ -12,6 +12,7 @@
+@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.calculateStartPadding
  import androidx.compose.foundation.layout.consumeWindowInsets
  import androidx.compose.foundation.layout.displayCutout
  import androidx.compose.foundation.layout.exclude
@@ -1441,7 +1619,7 @@
  import androidx.compose.foundation.layout.onConsumedWindowInsetsChanged
  import androidx.compose.foundation.layout.padding
  import androidx.compose.foundation.layout.systemBars
-@@ -52,6 +53,9 @@
+@@ -52,6 +53,9 @@ import top.yukonga.miuix.kmp.utils.MiuixPopupUtils.Companion.MiuixPopupHost
   * To show a [Snackbar], use [SnackbarHostState.showSnackbar].
   *
   * @param modifier the [Modifier] to be applied to this scaffold.
@@ -1451,7 +1629,7 @@
   * @param topBar top app bar of the screen.
   * @param bottomBar bottom bar of the screen.
   * @param floatingActionButton floating action button of the screen.
-@@ -77,6 +81,7 @@
+@@ -77,6 +81,7 @@ import top.yukonga.miuix.kmp.utils.MiuixPopupUtils.Companion.MiuixPopupHost
  @Composable
  fun Scaffold(
      modifier: Modifier = Modifier,
@@ -1459,7 +1637,7 @@
      topBar: @Composable () -> Unit = {},
      bottomBar: @Composable () -> Unit = {},
      floatingActionButton: @Composable () -> Unit = {},
-@@ -109,18 +114,24 @@
+@@ -109,18 +114,24 @@ fun Scaffold(
              LocalRootDialogStates provides rootDialogStates,
              LocalRootPopupStates provides rootPopupStates,
          ) {
@@ -1496,7 +1674,7 @@
          }
      }
  }
-@@ -143,6 +154,7 @@
+@@ -143,6 +154,7 @@ fun Scaffold(
   */
  @Composable
  private fun ScaffoldLayout(
@@ -1504,7 +1682,7 @@
      topBar: @Composable () -> Unit,
      snackbar: @Composable () -> Unit,
      bottomBar: @Composable () -> Unit,
-@@ -179,7 +191,7 @@
+@@ -179,7 +191,7 @@ private fun ScaffoldLayout(
      val floatingToolbarContent: @Composable () -> Unit = remember(floatingToolbar) { { Box { floatingToolbar() } } }
      val bodyContent: @Composable () -> Unit = remember(content, contentPadding) { { Box { content(contentPadding) } } }
      val bottomBarContent: @Composable () -> Unit = remember(bottomBar) { { Box { bottomBar() } } }
@@ -1513,9 +1691,11 @@
          val layoutWidth = constraints.maxWidth
          val layoutHeight = constraints.maxHeight
  
+diff --git a/miuix-ui/src/commonMain/kotlin/top/yukonga/miuix/kmp/basic/TopAppBar.kt b/miuix-ui/src/commonMain/kotlin/top/yukonga/miuix/kmp/basic/TopAppBar.kt
+index 9121bd6..5883353 100644
 --- a/miuix-ui/src/commonMain/kotlin/top/yukonga/miuix/kmp/basic/TopAppBar.kt
 +++ b/miuix-ui/src/commonMain/kotlin/top/yukonga/miuix/kmp/basic/TopAppBar.kt
-@@ -93,6 +93,7 @@
+@@ -93,6 +93,7 @@ import kotlin.math.abs
   * @param titlePadding The horizontal padding of the [TopAppBar]'s title & large title.
   * @param navigationIconPadding The start padding of the navigation icon.
   * @param actionIconPadding The end padding of the action icons.
@@ -1523,7 +1703,7 @@
   * @param bottomContent The [Composable] content displayed below the title bar area.
   */
  @Composable
-@@ -112,6 +113,7 @@
+@@ -112,6 +113,7 @@ fun TopAppBar(
      titlePadding: Dp = TopAppBarDefaults.TitlePadding,
      navigationIconPadding: Dp = TopAppBarDefaults.NavigationIconPadding,
      actionIconPadding: Dp = TopAppBarDefaults.ActionIconPadding,
@@ -1531,7 +1711,7 @@
      bottomContent: @Composable () -> Unit = {},
  ) {
      // Wrap the given actions in a Row.
-@@ -144,6 +146,7 @@
+@@ -144,6 +146,7 @@ fun TopAppBar(
          scrollBehavior = scrollBehavior,
          modifier = modifier,
          defaultWindowInsetsPadding = defaultWindowInsetsPadding,
@@ -1539,7 +1719,7 @@
          bottomContent = bottomContent,
      )
  }
-@@ -605,6 +608,7 @@
+@@ -605,6 +608,7 @@ private suspend fun settleAppBar(
   * @param modifier the [Modifier] to be applied to this layout.
   * @param largeTitle the large title of the [TopAppBar], if not specified, it will be the same as title.
   * @param defaultWindowInsetsPadding whether to apply default window insets padding to the [TopAppBar].
@@ -1547,7 +1727,7 @@
   * @param bottomContent the composable content displayed below the title bar area.
   */
  @Composable
-@@ -624,6 +628,7 @@
+@@ -624,6 +628,7 @@ private fun TopAppBarLayout(
      modifier: Modifier = Modifier,
      largeTitle: String = title,
      defaultWindowInsetsPadding: Boolean = true,
@@ -1555,7 +1735,7 @@
      bottomContent: @Composable () -> Unit = {},
  ) {
      // Producer lambdas — reads stay in layout/draw phases so scroll never recomposes this subtree.
-@@ -776,7 +781,7 @@
+@@ -776,7 +781,7 @@ private fun TopAppBarLayout(
                  },
              )
              .windowInsetsPadding(WindowInsets.systemBars.only(WindowInsetsSides.Top))
@@ -1564,9 +1744,11 @@
              .pointerInput(Unit) {
                  detectTapGestures { /* Consume click */ }
              },
+diff --git a/miuix-ui/src/commonMain/kotlin/top/yukonga/miuix/kmp/layout/BottomSheetContentLayout.kt b/miuix-ui/src/commonMain/kotlin/top/yukonga/miuix/kmp/layout/BottomSheetContentLayout.kt
+index d540c7e..cdc2f13 100644
 --- a/miuix-ui/src/commonMain/kotlin/top/yukonga/miuix/kmp/layout/BottomSheetContentLayout.kt
 +++ b/miuix-ui/src/commonMain/kotlin/top/yukonga/miuix/kmp/layout/BottomSheetContentLayout.kt
-@@ -126,6 +126,8 @@
+@@ -126,6 +126,8 @@ internal fun BottomSheetContentLayout(
      dragHandleColor: Color,
      popupHost: @Composable (visible: Boolean, content: @Composable () -> Unit) -> Unit,
      modifier: Modifier = Modifier,
@@ -1575,7 +1757,7 @@
      title: String? = null,
      startAction: @Composable (() -> Unit)? = null,
      endAction: @Composable (() -> Unit)? = null,
-@@ -299,6 +301,8 @@
+@@ -299,6 +301,8 @@ internal fun BottomSheetContentLayout(
                      }
                  },
                  modifier = sheetModifier,
@@ -1584,7 +1766,7 @@
                  topInset = topInset,
                  enableNestedScroll = enableNestedScroll,
                  startAction = startAction?.let { action ->
-@@ -335,6 +339,8 @@
+@@ -335,6 +339,8 @@ internal fun BottomSheetContent(
      dragSnapChannel: Channel<Float>,
      onDismissRequest: (() -> Unit)?,
      modifier: Modifier = Modifier,
@@ -1593,7 +1775,7 @@
      topInset: Dp? = null,
      enableNestedScroll: Boolean = true,
      startAction: @Composable (() -> Unit)? = null,
-@@ -564,6 +570,8 @@
+@@ -564,6 +570,8 @@ internal fun BottomSheetContent(
          onSettle = performSettle,
          onUpdateAlpha = updateDimAlpha,
          modifier = modifier,
@@ -1602,7 +1784,7 @@
          content = content,
      )
  }
-@@ -593,6 +601,8 @@
+@@ -593,6 +601,8 @@ private fun BottomSheetColumn(
      onSettle: (velocity: Float) -> Unit,
      onUpdateAlpha: (Float) -> Unit,
      modifier: Modifier = Modifier,
@@ -1611,7 +1793,7 @@
      content: @Composable () -> Unit,
  ) {
      val density = LocalDensity.current
-@@ -609,7 +619,7 @@
+@@ -609,7 +619,7 @@ private fun BottomSheetColumn(
              backgroundColor = backgroundColor,
          )
  
@@ -1620,7 +1802,7 @@
              modifier = modifier
                  .pointerInput(Unit) { detectTapGestures { /* Consume click */ } }
                  .then(if (enableNestedScroll) Modifier.nestedScroll(nestedScrollConnection) else Modifier)
-@@ -633,10 +643,13 @@
+@@ -633,10 +643,13 @@ private fun BottomSheetColumn(
                      topEnd = cornerRadius,
                      bottomEnd = 0.dp,
                      bottomStart = 0.dp,
@@ -1637,7 +1819,7 @@
              DragHandleArea(
                  dragHandleColor = dragHandleColor,
                  allowDismiss = allowDismiss,
-@@ -654,6 +667,7 @@
+@@ -654,6 +667,7 @@ private fun BottomSheetColumn(
              )
  
              content()
@@ -1645,9 +1827,11 @@
          }
      }
  }
+diff --git a/miuix-ui/src/commonMain/kotlin/top/yukonga/miuix/kmp/layout/CascadingListPopupLayout.kt b/miuix-ui/src/commonMain/kotlin/top/yukonga/miuix/kmp/layout/CascadingListPopupLayout.kt
+index 0c7f6a2..dc91560 100644
 --- a/miuix-ui/src/commonMain/kotlin/top/yukonga/miuix/kmp/layout/CascadingListPopupLayout.kt
 +++ b/miuix-ui/src/commonMain/kotlin/top/yukonga/miuix/kmp/layout/CascadingListPopupLayout.kt
-@@ -11,7 +11,9 @@
+@@ -11,7 +11,9 @@ import androidx.compose.foundation.layout.Spacer
  import androidx.compose.foundation.layout.fillMaxSize
  import androidx.compose.runtime.Composable
  import androidx.compose.runtime.CompositionLocalProvider
@@ -1657,7 +1841,7 @@
  import androidx.compose.runtime.getValue
  import androidx.compose.runtime.mutableStateMapOf
  import androidx.compose.runtime.mutableStateOf
-@@ -20,15 +22,22 @@
+@@ -20,15 +22,23 @@ import androidx.compose.runtime.rememberCoroutineScope
  import androidx.compose.runtime.rememberUpdatedState
  import androidx.compose.runtime.setValue
  import androidx.compose.runtime.snapshotFlow
@@ -1674,13 +1858,14 @@
  import androidx.compose.ui.layout.positionInWindow
  import androidx.compose.ui.platform.LocalLayoutDirection
 +import androidx.compose.ui.platform.LocalHapticFeedback
++import androidx.compose.ui.semantics.clearAndSetSemantics
 +import top.yukonga.miuix.kmp.basic.LocalPopupSlideSelection
 +import top.yukonga.miuix.kmp.basic.PopupSlideSelection
 +import top.yukonga.miuix.kmp.basic.popupSlideSelection
  import androidx.compose.ui.unit.Constraints
  import androidx.compose.ui.unit.Density
  import androidx.compose.ui.unit.Dp
-@@ -38,9 +47,10 @@
+@@ -38,9 +48,10 @@ import androidx.compose.ui.unit.IntSize
  import androidx.compose.ui.unit.LayoutDirection
  import androidx.compose.ui.unit.dp
  import androidx.navigationevent.NavigationEventInfo
@@ -1693,7 +1878,7 @@
  import kotlinx.coroutines.flow.first
  import kotlinx.coroutines.joinAll
  import kotlinx.coroutines.launch
-@@ -51,7 +61,11 @@
+@@ -51,7 +62,11 @@ import top.yukonga.miuix.kmp.basic.DropdownEntry
  import top.yukonga.miuix.kmp.basic.DropdownItem
  import top.yukonga.miuix.kmp.basic.ListPopupDefaults
  import top.yukonga.miuix.kmp.basic.ListPopupLayoutInfo
@@ -1705,7 +1890,7 @@
  import top.yukonga.miuix.kmp.basic.rememberListPopupLayoutInfo
  import top.yukonga.miuix.kmp.theme.LocalDismissState
  import top.yukonga.miuix.kmp.theme.MiuixTheme
-@@ -59,10 +73,11 @@
+@@ -59,10 +74,11 @@ import top.yukonga.miuix.kmp.theme.MiuixTheme
  internal val CascadingPopupCornerRadius = 16.dp
  
  private const val MAIN_SPRING_DAMPING = 0.95f
@@ -1720,7 +1905,7 @@
  private const val ARROW_COLLAPSE_SPRING_RESPONSE = 0.3f
  private const val PRIMARY_SHRUNK_SCALE = 0.95f
  internal const val ENTER_SCALE_FROM = 0.15f
-@@ -83,16 +98,23 @@
+@@ -83,16 +99,23 @@ internal fun CascadingListPopupLayout(
      enableWindowDim: Boolean = true,
      maxHeight: Dp? = null,
      minWidth: Dp = 200.dp,
@@ -1744,17 +1929,16 @@
      val expandFraction = remember { Animatable(0f) }
      val primaryScale = remember { Animatable(1f) }
      val maskAlpha = remember { Animatable(0f) }
-@@ -110,22 +132,30 @@
+@@ -110,22 +133,30 @@ internal fun CascadingListPopupLayout(
      var primarySize by remember { mutableStateOf(IntSize.Zero) }
      var hostPositionInWindow by remember { mutableStateOf(IntOffset.Zero) }
      var hostMeasured by remember { mutableStateOf(false) }
--
--    LaunchedEffect(show) {
 +    val slideSelection = remember(visualStyle.slideSelection) {
 +        if (visualStyle.slideSelection) PopupSlideSelection() else null
 +    }
 +    val slideHaptic = LocalHapticFeedback.current
-+
+ 
+-    LaunchedEffect(show) {
 +    LaunchedEffect(show, morphFromAnchor) {
          if (show) {
              internalVisible.value = true
@@ -1781,7 +1965,7 @@
              dimProgress.stop()
              internalVisible.value = false
              currentOnDismissFinished?.invoke()
-@@ -134,10 +164,16 @@
+@@ -134,10 +165,16 @@ internal fun CascadingListPopupLayout(
  
      LaunchedEffect(expandedItem) {
          val item = expandedItem
@@ -1800,7 +1984,7 @@
          } else {
              folmeSpring<Float>(MAIN_SPRING_DAMPING, COLLAPSE_SPRING_RESPONSE)
          }
-@@ -195,44 +231,58 @@
+@@ -195,44 +232,58 @@ internal fun CascadingListPopupLayout(
      val anchorBoundsByItem = remember { mutableStateMapOf<DropdownItem, IntRect>() }
  
      popupHost(internalVisible.value) {
@@ -1815,21 +1999,6 @@
 +                override fun onBackCancelled() {
                  // Reset whichever tree the gesture drove; depth cannot change mid-gesture.
 -                coroutineScope.launch {
--                    if (expandedItem != null) {
--                        val mainSpec = folmeSpring<Float>(EXPAND_SPRING_DAMPING, EXPAND_SPRING_RESPONSE)
--                        val arrowSpec = folmeSpring<Float>(MAIN_SPRING_DAMPING, ARROW_EXPAND_SPRING_RESPONSE)
--                        joinAll(
--                            launch { expandFraction.animateTo(1f, mainSpec) },
--                            launch { primaryScale.animateTo(PRIMARY_SHRUNK_SCALE, mainSpec) },
--                            launch { maskAlpha.animateTo(1f, mainSpec) },
--                            launch { arrowRotation.animateTo(arrowEndDeg, arrowSpec) },
--                        )
--                    } else {
--                        joinAll(
--                            launch { enterFraction.animateTo(1f, ListPopupDefaults.ResetAnimationSpec) },
--                            launch { enterAlpha.animateTo(1f, ListPopupDefaults.AlphaEnterAnimationSpec) },
--                            launch { dimProgress.animateTo(1f, ListPopupDefaults.DimEnterAnimationSpec) },
--                        )
 +                    coroutineScope.launch {
 +                        if (expandedItem != null) {
 +                            val mainSpec = folmeSpring<Float>(EXPAND_SPRING_DAMPING, EXPAND_SPRING_RESPONSE)
@@ -1848,6 +2017,28 @@
 +                                launch { dimProgress.animateTo(1f, ListPopupDefaults.DimEnterAnimationSpec) },
 +                            )
 +                        }
++                    }
++                }
++
++                override fun onBackCompleted() {
++                    // Overlay priority keeps the IME mounted until both popup levels are gone.
+                     if (expandedItem != null) {
+-                        val mainSpec = folmeSpring<Float>(EXPAND_SPRING_DAMPING, EXPAND_SPRING_RESPONSE)
+-                        val arrowSpec = folmeSpring<Float>(MAIN_SPRING_DAMPING, ARROW_EXPAND_SPRING_RESPONSE)
+-                        joinAll(
+-                            launch { expandFraction.animateTo(1f, mainSpec) },
+-                            launch { primaryScale.animateTo(PRIMARY_SHRUNK_SCALE, mainSpec) },
+-                            launch { maskAlpha.animateTo(1f, mainSpec) },
+-                            launch { arrowRotation.animateTo(arrowEndDeg, arrowSpec) },
+-                        )
++                        expandedItem = null
+                     } else {
+-                        joinAll(
+-                            launch { enterFraction.animateTo(1f, ListPopupDefaults.ResetAnimationSpec) },
+-                            launch { enterAlpha.animateTo(1f, ListPopupDefaults.AlphaEnterAnimationSpec) },
+-                            launch { dimProgress.animateTo(1f, ListPopupDefaults.DimEnterAnimationSpec) },
+-                        )
++                        currentOnDismiss()
                      }
                  }
 -            },
@@ -1857,19 +2048,9 @@
 -                    expandedItem = null
 -                } else {
 -                    currentOnDismiss()
-+
-+                override fun onBackCompleted() {
-+                    // Overlay priority keeps the IME mounted until both popup levels are gone.
-+                    if (expandedItem != null) {
-+                        expandedItem = null
-+                    } else {
-+                        currentOnDismiss()
-+                    }
-                 }
+-                }
 -            },
 -        )
--
--        LaunchedEffect(Unit) {
 +            }
 +        }
 +        SideEffect {
@@ -1884,7 +2065,8 @@
 +            }
 +            onDispose { overlayBackHandler.remove() }
 +        }
-+
+ 
+-        LaunchedEffect(Unit) {
 +        LaunchedEffect(overlayBackHandler) {
              // Single-coroutine collector so per-frame ticks do not relaunch this effect.
 -            snapshotFlow { backState.transitionState }
@@ -1892,7 +2074,7 @@
                  .collect { transitionState ->
                      if (
                          transitionState is NavigationEventTransitionState.InProgress &&
-@@ -248,6 +298,7 @@
+@@ -248,6 +299,7 @@ internal fun CascadingListPopupLayout(
                          } else {
                              // Preview popup → spawn corner retreat along the entry tree.
                              enterFraction.snapTo(inv)
@@ -1900,7 +2082,7 @@
                              enterAlpha.snapTo(inv)
                              dimProgress.snapTo(inv)
                          }
-@@ -274,6 +325,7 @@
+@@ -274,6 +326,7 @@ internal fun CascadingListPopupLayout(
                  Box(
                      modifier = popupModifier
                          .fillMaxSize()
@@ -1908,7 +2090,7 @@
                          .onGloballyPositioned { coords ->
                              val pos = coords.positionInWindow()
                              hostPositionInWindow = IntOffset(pos.x.toInt(), pos.y.toInt())
-@@ -281,14 +333,14 @@
+@@ -281,14 +334,14 @@ internal fun CascadingListPopupLayout(
                          }
                          .pointerInput(Unit) {
                              detectTapGestures(onTap = {
@@ -1928,7 +2110,7 @@
                      CascadingMorphSubLayout(
                          entries = entries,
                          expandedItem = expandedItem,
-@@ -304,13 +356,12 @@
+@@ -304,13 +357,12 @@ internal fun CascadingListPopupLayout(
                          },
                          getAnchorBounds = { anchorBoundsByItem[it] },
                          setAnchorBounds = { item, bounds ->
@@ -1943,7 +2125,7 @@
                          windowBounds = layoutInfo.windowBounds,
                          popupMargin = layoutInfo.popupMargin,
                          parentBounds = parentBounds,
-@@ -318,9 +369,15 @@
+@@ -318,9 +370,15 @@ internal fun CascadingListPopupLayout(
                          alignment = alignment,
                          hostOriginInWindow = { hostPositionInWindow },
                          maxHeight = maxHeight,
@@ -1961,7 +2143,7 @@
                          enterAlpha = { enterAlpha.value },
                          primaryScale = { primaryScale.value },
                          maskAlpha = { maskAlpha.value },
-@@ -331,6 +388,7 @@
+@@ -331,6 +389,7 @@ internal fun CascadingListPopupLayout(
                          surfaceColor = surfaceColor,
                          maskColor = maskColor,
                      )
@@ -1969,7 +2151,7 @@
                  }
              }
          }
-@@ -359,6 +417,7 @@
+@@ -359,6 +418,7 @@ private fun CascadingMorphSubLayout(
      getAnchorBounds: (DropdownItem) -> IntRect?,
      setAnchorBounds: (DropdownItem, IntRect) -> Unit,
      onPrimarySizeChange: (IntSize) -> Unit,
@@ -1977,7 +2159,7 @@
      windowBounds: IntRect,
      popupMargin: IntRect,
      parentBounds: IntRect,
-@@ -367,8 +426,14 @@
+@@ -367,8 +427,14 @@ private fun CascadingMorphSubLayout(
      hostOriginInWindow: () -> IntOffset,
      maxHeight: Dp?,
      minWidth: Dp,
@@ -1992,7 +2174,7 @@
      enterAlpha: () -> Float,
      primaryScale: () -> Float,
      maskAlpha: () -> Float,
-@@ -380,22 +445,26 @@
+@@ -380,22 +446,34 @@ private fun CascadingMorphSubLayout(
      maskColor: Color,
  ) {
      SubcomposeLayout(modifier = Modifier.fillMaxSize()) { constraints ->
@@ -2018,14 +2200,23 @@
  
          // Secondary subcomposition tracks [displayedItem] so the morphing surface survives the
          // collapse spring; primary's mask/chevron use [expandedItem] for instant input feedback.
-         val activeExpanded = displayedItem
+-        val activeExpanded = displayedItem
++        val rawActiveExpanded = displayedItem
++        val activeExpanded = rawActiveExpanded?.let { current ->
++            entries.asSequence()
++                .flatMap { it.items.asSequence() }
++                .firstOrNull { candidate ->
++                    !candidate.children.isNullOrEmpty() && candidate.text == current.text
++                }
++                ?: current
++        }
          val anchorRect = activeExpanded?.let { getAnchorBounds(it) }
 -        val (anchorPaddingTopPx, _) = if (activeExpanded != null) {
 +        val (anchorPaddingTopPx, anchorPaddingBottomPx) = if (activeExpanded != null) {
              computeAnchorPaddingPx(activeExpanded, entries)
          } else {
              0 to 0
-@@ -409,25 +478,29 @@
+@@ -409,25 +487,29 @@ private fun CascadingMorphSubLayout(
          val primaryPlaceables = subcompose(SLOT_PRIMARY) {
              CascadingPrimaryContent(
                  entries = entries,
@@ -2059,7 +2250,7 @@
          val primaryMeasuredSize = IntSize(primaryWidth, primaryHeight)
          onPrimarySizeChange(primaryMeasuredSize)
  
-@@ -444,10 +517,21 @@
+@@ -444,10 +526,21 @@ private fun CascadingMorphSubLayout(
              )
          }
  
@@ -2081,18 +2272,23 @@
              maxHeight = resolvedMaxHeightPx.coerceAtMost(constraints.maxHeight),
          )
  
-@@ -459,6 +543,10 @@
+@@ -459,7 +552,14 @@ private fun CascadingMorphSubLayout(
          val secondaryLayout: SecondaryLayout? =
              if (activeExpanded != null && anchorRect != null) {
                  val measured = subcompose(SLOT_SECONDARY_PROBE) {
+-                    Box(propagateMinConstraints = true) {
 +                    CompositionLocalProvider(
 +                        LocalPopupSlideSelection provides null,
 +                        LocalListPopupVisualStyle provides secondaryVisualStyle.copy(slideSelection = false)
 +                    ) {
-                     Box(propagateMinConstraints = true) {
++                    Box(
++                        modifier = Modifier.clearAndSetSemantics {},
++                        propagateMinConstraints = true
++                    ) {
                          CascadingSecondaryColumn(
                              triggerItem = activeExpanded,
-@@ -467,9 +555,11 @@
+                             dropdownColors = dropdownColors,
+@@ -467,10 +567,12 @@ private fun CascadingMorphSubLayout(
                              arrowRotation = ProbeArrowRotation,
                              anchorHeightPx = 0,
                              anchorPaddingTopPx = 0,
@@ -2100,11 +2296,12 @@
                              onHeaderClick = ProbeOnHeaderClick,
                              onLeafSelected = ProbeOnLeafSelected,
                          )
-+                    }
                      }
++                    }
                  }.firstOrNull()?.measure(probeConstraints)
                  val secondarySize = if (measured != null) {
-@@ -511,6 +601,7 @@
+                     IntSize(measured.width, measured.height)
+@@ -511,6 +613,7 @@ private fun CascadingMorphSubLayout(
                              secondaryLocalInUnion = secondaryLocalInUnion,
                              anchorLocalInUnion = anchorLocalInUnion,
                              anchorPaddingTopPx = anchorPaddingTopPx,
@@ -2112,7 +2309,7 @@
                              isAnchorPopupLast = isAnchorPopupLast,
                              secondaryContentMaxHeight = resolvedMaxHeightPx,
                              enterFraction = enterFraction,
-@@ -523,6 +614,7 @@
+@@ -523,6 +626,7 @@ private fun CascadingMorphSubLayout(
                              onLeafSelected = onLeafSelected,
                              dropdownColors = dropdownColors,
                              surfaceColor = surfaceColor,
@@ -2120,7 +2317,7 @@
                          )
                      }.map { it.measure(unionConstraints) }
                      SecondaryLayout(placeables, unionRect)
-@@ -535,8 +627,8 @@
+@@ -535,8 +639,8 @@ private fun CascadingMorphSubLayout(
  
          val host = hostOriginInWindow()
          layout(constraints.maxWidth, constraints.maxHeight) {
@@ -2131,7 +2328,7 @@
              var py = primaryDyLocal
              primaryPlaceables.forEach { placeable ->
                  placeable.place(primaryDxLocal, py)
-@@ -547,6 +639,7 @@
+@@ -547,6 +651,7 @@ private fun CascadingMorphSubLayout(
                  val uy = unionRect.top - host.y
                  placeables.forEach { it.place(ux, uy) }
              }
@@ -2139,7 +2336,7 @@
          }
      }
  }
-@@ -611,16 +704,9 @@
+@@ -611,16 +716,9 @@ private fun Density.computeAnchorPaddingPx(
          if (idx != -1) {
              val isPopupFirst = entryIdx == firstNonEmptyIdx && idx == 0
              val isPopupLast = entryIdx == lastNonEmptyIdx && idx == entry.items.lastIndex
@@ -2159,6 +2356,8 @@
              return top to bottom
          }
      }
+diff --git a/miuix-ui/src/commonMain/kotlin/top/yukonga/miuix/kmp/layout/CascadingMorphContent.kt b/miuix-ui/src/commonMain/kotlin/top/yukonga/miuix/kmp/layout/CascadingMorphContent.kt
+index 3c496e1..e41f28b 100644
 --- a/miuix-ui/src/commonMain/kotlin/top/yukonga/miuix/kmp/layout/CascadingMorphContent.kt
 +++ b/miuix-ui/src/commonMain/kotlin/top/yukonga/miuix/kmp/layout/CascadingMorphContent.kt
 @@ -4,12 +4,14 @@
@@ -2177,7 +2376,7 @@
  import androidx.compose.runtime.key
  import androidx.compose.runtime.remember
  import androidx.compose.ui.Modifier
-@@ -21,9 +23,12 @@
+@@ -21,9 +23,12 @@ import androidx.compose.ui.graphics.Color
  import androidx.compose.ui.graphics.Path
  import androidx.compose.ui.graphics.TransformOrigin
  import androidx.compose.ui.graphics.drawscope.clipPath
@@ -2190,7 +2389,7 @@
  import androidx.compose.ui.layout.layout
  import androidx.compose.ui.layout.onGloballyPositioned
  import androidx.compose.ui.layout.positionInWindow
-@@ -40,6 +45,12 @@
+@@ -40,6 +45,12 @@ import top.yukonga.miuix.kmp.basic.DropdownImpl
  import top.yukonga.miuix.kmp.basic.DropdownItem
  import top.yukonga.miuix.kmp.basic.HorizontalDivider
  import top.yukonga.miuix.kmp.basic.ListPopupColumn
@@ -2203,7 +2402,7 @@
  import top.yukonga.miuix.kmp.basic.PopupLayoutPosition
  import top.yukonga.miuix.kmp.basic.popupClipReveal
  import top.yukonga.miuix.kmp.squircle.isSquircleEnabled
-@@ -58,42 +69,35 @@
+@@ -58,42 +69,35 @@ private val CascadeShadow: Shadow = Shadow(
  @Composable
  internal fun CascadingPrimaryContent(
      entries: List<DropdownEntry>,
@@ -2261,7 +2460,7 @@
          Box {
              ListPopupColumn {
                  val lastEntryIdx = entries.lastIndex
-@@ -112,6 +116,7 @@
+@@ -112,6 +116,7 @@ internal fun CascadingPrimaryContent(
                                  isLast = isLastEntry && itemIndex == lastItemIdx,
                                  dropdownColors = dropdownColors,
                                  onClick = {
@@ -2269,7 +2468,7 @@
                                      val children = item.children?.takeIf { it.isNotEmpty() }
                                      if (children != null) {
                                          if (!deeperChildrenWarned &&
-@@ -144,17 +149,68 @@
+@@ -144,17 +149,68 @@ internal fun CascadingPrimaryContent(
                  }
              }
          }
@@ -2341,7 +2540,7 @@
      }
  }
  
-@@ -212,6 +268,7 @@
+@@ -212,6 +268,7 @@ internal fun CascadingSecondaryContent(
      secondaryLocalInUnion: IntRect,
      anchorLocalInUnion: IntRect,
      anchorPaddingTopPx: Int,
@@ -2349,7 +2548,7 @@
      isAnchorPopupLast: Boolean,
      secondaryContentMaxHeight: Int,
      enterFraction: () -> Float,
-@@ -224,14 +281,34 @@
+@@ -224,14 +281,34 @@ internal fun CascadingSecondaryContent(
      onLeafSelected: (DropdownItem) -> Unit,
      dropdownColors: DropdownColors,
      surfaceColor: Color,
@@ -2361,7 +2560,6 @@
      val anchorTopLeft = anchorLocalInUnion.topLeft
      val secondaryTopLeft = secondaryLocalInUnion.topLeft
      val secondaryWidth = secondaryLocalInUnion.width
--
 +    val materialPanel = {
 +        val fraction = expandFraction()
 +        val anchorRadius = minOf(cornerPx, anchorLocalInUnion.height / 2f)
@@ -2375,7 +2573,7 @@
 +            top, top, bottom, bottom
 +        )
 +    }
-+
+ 
 +    CompositionLocalProvider(
 +        LocalListPopupVisualStyle provides visualStyle,
 +        LocalPopupSlideActive provides { expandFraction() >= 0.9f }
@@ -2386,7 +2584,7 @@
              .graphicsLayer {
                  val s = ENTER_SCALE_FROM + ENTER_SCALE_RANGE * enterFraction()
                  scaleX = s
-@@ -239,12 +316,13 @@
+@@ -239,12 +316,13 @@ internal fun CascadingSecondaryContent(
                  alpha = enterAlpha()
                  this.transformOrigin = transformOrigin
              }
@@ -2402,7 +2600,7 @@
                      // Last-row anchors share primary's rounded bottom — keep both bottom corners
                      // full. Mid-list anchors must shrink uniformly into a flat internal row.
                      val rBottom = if (isAnchorPopupLast) cornerPx else rTop
-@@ -280,15 +358,17 @@
+@@ -280,15 +358,17 @@ internal fun CascadingSecondaryContent(
                          ),
                      )
                      clipPath(innerPath) {
@@ -2425,7 +2623,7 @@
              // Occupy full union size so the inner content can slide between anchor and
              // secondary even when the anchor sits outside the secondary bounds.
              .layout { measurable, _ ->
-@@ -300,6 +380,7 @@
+@@ -300,6 +380,7 @@ internal fun CascadingSecondaryContent(
      ) {
          // propagateMinConstraints stretches ListPopupColumn to secondaryWidth; without it the
          // column collapses to its intrinsic min and leaves an unclickable strip.
@@ -2433,7 +2631,7 @@
          Box(
              modifier = Modifier
                  .graphicsLayer {
-@@ -338,14 +419,16 @@
+@@ -338,14 +419,16 @@ internal fun CascadingSecondaryContent(
                  arrowRotation = arrowRotation,
                  anchorHeightPx = anchorLocalInUnion.height,
                  anchorPaddingTopPx = anchorPaddingTopPx,
@@ -2451,7 +2649,7 @@
   *  animated layout and the measurement probe so their sizes can't diverge. */
  @Composable
  internal fun CascadingSecondaryColumn(
-@@ -355,6 +438,7 @@
+@@ -355,6 +438,7 @@ internal fun CascadingSecondaryColumn(
      arrowRotation: () -> Float,
      anchorHeightPx: Int,
      anchorPaddingTopPx: Int,
@@ -2459,24 +2657,27 @@
      onHeaderClick: () -> Unit,
      onLeafSelected: (DropdownItem) -> Unit,
  ) {
-@@ -366,13 +450,9 @@
+@@ -366,14 +450,10 @@ internal fun CascadingSecondaryColumn(
              expandFraction = expandFraction,
              anchorHeightPx = anchorHeightPx,
              anchorPaddingTopPx = anchorPaddingTopPx,
 +            anchorPaddingBottomPx = anchorPaddingBottomPx,
              dropdownColors = dropdownColors,
              onClick = onHeaderClick,
--        )
+         )
 -        HorizontalDivider(
 -            modifier = Modifier
 -                .padding(horizontal = 20.dp, vertical = 4.dp),
 -            thickness = 1.5.dp,
-         )
+-        )
          val lastChildIdx = children.lastIndex
          children.forEachIndexed { index, child ->
+             key(child) {
+diff --git a/miuix-ui/src/commonMain/kotlin/top/yukonga/miuix/kmp/layout/DialogContentLayout.kt b/miuix-ui/src/commonMain/kotlin/top/yukonga/miuix/kmp/layout/DialogContentLayout.kt
+index 844bcdf..be85d15 100644
 --- a/miuix-ui/src/commonMain/kotlin/top/yukonga/miuix/kmp/layout/DialogContentLayout.kt
 +++ b/miuix-ui/src/commonMain/kotlin/top/yukonga/miuix/kmp/layout/DialogContentLayout.kt
-@@ -28,6 +28,7 @@
+@@ -28,6 +28,7 @@ import androidx.compose.foundation.layout.widthIn
  import androidx.compose.runtime.Composable
  import androidx.compose.runtime.CompositionLocalProvider
  import androidx.compose.runtime.LaunchedEffect
@@ -2484,7 +2685,7 @@
  import androidx.compose.runtime.MutableIntState
  import androidx.compose.runtime.getValue
  import androidx.compose.runtime.mutableFloatStateOf
-@@ -37,6 +38,7 @@
+@@ -37,6 +38,7 @@ import androidx.compose.runtime.remember
  import androidx.compose.runtime.rememberCoroutineScope
  import androidx.compose.runtime.rememberUpdatedState
  import androidx.compose.runtime.snapshotFlow
@@ -2492,7 +2693,7 @@
  import androidx.compose.ui.Alignment
  import androidx.compose.ui.Modifier
  import androidx.compose.ui.draw.drawBehind
-@@ -81,6 +83,7 @@
+@@ -81,6 +83,7 @@ import top.yukonga.miuix.kmp.window.WindowDialog
   * @param popupHost A composable that provides the dialog container (e.g., DialogLayout or Dialog).
   *   It receives the visibility state and the inner content composable.
   * @param modifier The modifier to be applied to the dialog content.
@@ -2500,7 +2701,7 @@
   * @param title The title of the dialog.
   * @param summary The summary of the dialog.
   * @param enableWindowDim Whether to enable window dimming.
-@@ -102,6 +105,8 @@
+@@ -102,6 +105,8 @@ internal fun DialogContentLayout(
      insideMargin: DpSize,
      popupHost: @Composable (visible: Boolean, content: @Composable () -> Unit) -> Unit,
      modifier: Modifier = Modifier,
@@ -2509,7 +2710,7 @@
      title: String? = null,
      summary: String? = null,
      enableWindowDim: Boolean = true,
-@@ -109,6 +114,9 @@
+@@ -109,6 +114,9 @@ internal fun DialogContentLayout(
      onDismissFinished: (() -> Unit)? = null,
      defaultWindowInsetsPadding: Boolean = true,
      topInset: Dp? = null,
@@ -2519,7 +2720,7 @@
      content: @Composable () -> Unit,
  ) {
      val animationProgress = remember { Animatable(0f, visibilityThreshold = 0.0001f) }
-@@ -124,9 +132,16 @@
+@@ -124,9 +132,16 @@ internal fun DialogContentLayout(
      LaunchedEffect(show) {
          // Snapshot at launch so a window-resize crossing the breakpoint mid-animation does not
          // swap the spec or relaunch the effect.
@@ -2537,7 +2738,7 @@
              if (enableWindowDim) {
                  launch { dimProgress.animateTo(1f, tween(300, easing = DecelerateEasing(1.5f))) }
              }
-@@ -156,6 +171,11 @@
+@@ -156,6 +171,11 @@ internal fun DialogContentLayout(
          }
      }
  
@@ -2549,7 +2750,7 @@
      if (!show && !internalVisible.value) return
  
      val coroutineScope = rememberCoroutineScope()
-@@ -190,7 +210,12 @@
+@@ -190,7 +210,12 @@ internal fun DialogContentLayout(
              onBackCompleted = { requestDismiss() },
          )
  
@@ -2563,7 +2764,7 @@
              // Collect inside a single coroutine so the per-frame `transitionState` ticks during a
              // back gesture do not cancel/relaunch the LaunchedEffect on every progress update.
              snapshotFlow { navigationEventState.transitionState }
-@@ -206,20 +231,21 @@
+@@ -206,20 +231,21 @@ internal fun DialogContentLayout(
                  }
          }
  
@@ -2595,7 +2796,7 @@
                  val scale = 0.8f + 0.2f * progress
                  scaleX = scale
                  scaleY = scale
-@@ -243,7 +269,9 @@
+@@ -243,7 +269,9 @@ internal fun DialogContentLayout(
              dialogHeightPx = dialogHeightPx,
              onDismissRequest = requestDismiss,
              modifier = contentModifier,
@@ -2605,7 +2806,7 @@
              content = {
                  CompositionLocalProvider(LocalDismissState provides requestDismiss) {
                      content()
-@@ -268,19 +296,22 @@
+@@ -268,19 +296,22 @@ internal fun DialogContent(
      dialogHeightPx: MutableIntState,
      onDismissRequest: (() -> Unit)?,
      modifier: Modifier = Modifier,
@@ -2632,7 +2833,7 @@
          (roundedCorner - offset).coerceAtLeast(32.dp)
      }
      val currentOnDismiss by rememberUpdatedState(onDismissRequest)
-@@ -308,14 +339,14 @@
+@@ -308,14 +339,14 @@ internal fun DialogContent(
  
      val contentModifier = modifier
          .widthIn(max = DialogDefaults.MaxWidth)
@@ -2649,7 +2850,7 @@
                  val scale = 1f - (backProgress.value * 0.2f)
                  scaleX = scale
                  scaleY = scale
-@@ -328,6 +359,7 @@
+@@ -328,6 +359,7 @@ internal fun DialogContent(
                  translationY = backProgress.value * maxOffset
              }
          }
@@ -2657,7 +2858,7 @@
          .pointerInput(Unit) {
              detectTapGestures { /* Consume click */ }
          }
-@@ -366,7 +398,9 @@
+@@ -366,7 +398,9 @@ internal fun DialogContent(
          ) {
              title?.let {
                  Text(
@@ -2668,13 +2869,15 @@
                      text = it,
                      fontSize = MiuixTheme.textStyles.title4.fontSize,
                      fontWeight = FontWeight.Medium,
-@@ -434,5 +468,5 @@
+@@ -434,5 +468,5 @@ object DialogDefaults {
      /**
       * The default margin inside the dialog.
       */
 -    val insideMargin = DpSize(24.dp, 24.dp)
 +    val insideMargin = DpSize(14.dp, 14.dp)
  }
+diff --git a/miuix-ui/src/commonMain/kotlin/top/yukonga/miuix/kmp/layout/ListPopupLayout.kt b/miuix-ui/src/commonMain/kotlin/top/yukonga/miuix/kmp/layout/ListPopupLayout.kt
+index 2264dae..487d412 100644
 --- a/miuix-ui/src/commonMain/kotlin/top/yukonga/miuix/kmp/layout/ListPopupLayout.kt
 +++ b/miuix-ui/src/commonMain/kotlin/top/yukonga/miuix/kmp/layout/ListPopupLayout.kt
 @@ -4,6 +4,9 @@
@@ -2687,7 +2890,7 @@
  import androidx.compose.foundation.background
  import androidx.compose.foundation.gestures.detectTapGestures
  import androidx.compose.foundation.layout.Box
-@@ -22,11 +25,13 @@
+@@ -22,11 +25,13 @@ import androidx.compose.runtime.snapshotFlow
  import androidx.compose.ui.Modifier
  import androidx.compose.ui.geometry.Offset
  import androidx.compose.ui.graphics.graphicsLayer
@@ -2701,7 +2904,7 @@
  import androidx.compose.ui.unit.IntOffset
  import androidx.compose.ui.unit.IntRect
  import androidx.compose.ui.unit.IntSize
-@@ -38,12 +43,22 @@
+@@ -38,12 +43,22 @@ import kotlinx.coroutines.joinAll
  import kotlinx.coroutines.launch
  import top.yukonga.miuix.kmp.basic.ListPopupContent
  import top.yukonga.miuix.kmp.basic.ListPopupDefaults
@@ -2724,7 +2927,7 @@
  
  /**
   * Internal shared layout logic for [OverlayListPopup] and [WindowListPopup].
-@@ -78,36 +93,54 @@
+@@ -78,36 +93,54 @@ internal fun ListPopupLayout(
      onDismissFinished: (() -> Unit)? = null,
      maxHeight: Dp? = null,
      minWidth: Dp = ListPopupDefaults.MinWidth,
@@ -2784,7 +2987,7 @@
              alphaProgress.snapTo(0f)
              dimProgress.snapTo(0f)
              internalVisible.value = false
-@@ -157,7 +190,8 @@
+@@ -157,7 +190,8 @@ internal fun ListPopupLayout(
                      // joinAll keeps the three reset coroutines as children of this launch so
                      // structural cancellation propagates if a new gesture supersedes the reset.
                      joinAll(
@@ -2794,7 +2997,7 @@
                          launch { alphaProgress.animateTo(1f, ListPopupDefaults.AlphaEnterAnimationSpec) },
                          launch { dimProgress.animateTo(1f, ListPopupDefaults.DimEnterAnimationSpec) },
                      )
-@@ -177,6 +211,7 @@
+@@ -177,6 +211,7 @@ internal fun ListPopupLayout(
                      ) {
                          val progress = transitionState.latestEvent.progress
                          fractionProgress.snapTo(1f - progress)
@@ -2802,7 +3005,7 @@
                          alphaProgress.snapTo(1f - progress)
                          dimProgress.snapTo(1f - progress)
                      }
-@@ -211,19 +246,28 @@
+@@ -211,19 +246,28 @@ internal fun ListPopupLayout(
                          val windowBounds = layoutInfo.windowBounds
                          val popupMargin = layoutInfo.popupMargin
                          val minHeightPx = ListPopupDefaults.MinPopupHeight.roundToPx()
@@ -2828,18 +3031,17 @@
                              ),
                          )
 -                        val measuredSize = IntSize(placeable.width, placeable.height)
--
--                        val calculatedOffset = popupPositionProvider.calculatePosition(
 +                        val measuredSize = IntSize(
 +                            (placeable.width - chrome * 2).coerceAtLeast(0),
 +                            (placeable.height - chrome * 2).coerceAtLeast(0),
 +                        )
-+
+ 
+-                        val calculatedOffset = popupPositionProvider.calculatePosition(
 +                        val stockOffset = popupPositionProvider.calculatePosition(
                              parentBounds,
                              windowBounds,
                              layoutDirection,
-@@ -232,9 +276,44 @@
+@@ -232,9 +276,44 @@ internal fun ListPopupLayout(
                              alignment,
                          )
  
@@ -2886,7 +3088,7 @@
                          )
  
                          layout(constraints.maxWidth, constraints.maxHeight) {
-@@ -242,19 +321,29 @@
+@@ -242,19 +321,29 @@ internal fun ListPopupLayout(
                          }
                      },
              ) {
@@ -2929,6 +3131,8 @@
              }
          }
      }
+diff --git a/miuix-ui/src/commonMain/kotlin/top/yukonga/miuix/kmp/layout/MorphHeaderRow.kt b/miuix-ui/src/commonMain/kotlin/top/yukonga/miuix/kmp/layout/MorphHeaderRow.kt
+index 7c5575e..330ade8 100644
 --- a/miuix-ui/src/commonMain/kotlin/top/yukonga/miuix/kmp/layout/MorphHeaderRow.kt
 +++ b/miuix-ui/src/commonMain/kotlin/top/yukonga/miuix/kmp/layout/MorphHeaderRow.kt
 @@ -4,6 +4,8 @@
@@ -2940,7 +3144,7 @@
  import androidx.compose.foundation.layout.Arrangement
  import androidx.compose.foundation.layout.Column
  import androidx.compose.foundation.layout.Row
-@@ -14,6 +16,8 @@
+@@ -14,6 +16,8 @@ import androidx.compose.foundation.layout.sizeIn
  import androidx.compose.foundation.layout.widthIn
  import androidx.compose.foundation.selection.selectable
  import androidx.compose.runtime.Composable
@@ -2949,7 +3153,7 @@
  import androidx.compose.runtime.getValue
  import androidx.compose.runtime.remember
  import androidx.compose.runtime.rememberUpdatedState
-@@ -24,15 +28,29 @@
+@@ -24,15 +28,29 @@ import androidx.compose.ui.graphics.BlendMode
  import androidx.compose.ui.graphics.BlendModeColorFilter
  import androidx.compose.ui.graphics.graphicsLayer
  import androidx.compose.ui.layout.Layout
@@ -2980,7 +3184,7 @@
  import top.yukonga.miuix.kmp.theme.MiuixTheme
  
  /**
-@@ -47,6 +65,7 @@
+@@ -47,6 +65,7 @@ internal fun MorphHeaderRow(
      expandFraction: () -> Float,
      anchorHeightPx: Int,
      anchorPaddingTopPx: Int,
@@ -2988,7 +3192,7 @@
      dropdownColors: DropdownColors,
      onClick: () -> Unit,
  ) {
-@@ -61,18 +80,41 @@
+@@ -61,18 +80,41 @@ internal fun MorphHeaderRow(
          BlendModeColorFilter(chevronColor, BlendMode.SrcIn)
      }
      val currentOnClick by rememberUpdatedState(onClick)
@@ -3032,7 +3236,7 @@
                      verticalAlignment = Alignment.CenterVertically,
                      horizontalArrangement = Arrangement.Start,
                  ) {
-@@ -89,7 +131,7 @@
+@@ -89,7 +131,7 @@ internal fun MorphHeaderRow(
                      Column {
                          Text(
                              text = triggerItem.text,
@@ -3041,7 +3245,7 @@
                              fontWeight = FontWeight.Medium,
                              color = titleColor,
                          )
-@@ -109,32 +151,46 @@
+@@ -109,32 +151,46 @@ internal fun MorphHeaderRow(
                              width = DropdownDefaults.ChevronSize.width,
                              height = DropdownDefaults.ChevronSize.height,
                          )
@@ -3052,8 +3256,8 @@
                      colorFilter = chevronColorFilter,
                      contentDescription = null,
                  )
-+            }
              }
++            }
          },
          // selectable + background on the outer Layout so the click target spans the full
          // interpolated row height (paddings included), not just the inner Row's content.
@@ -3094,7 +3298,7 @@
          val target = if (anchorHeightPx <= 0) {
              intrinsicTotal
          } else {
-@@ -145,7 +201,8 @@
+@@ -145,7 +201,8 @@ internal fun MorphHeaderRow(
          val width = placeable.width.coerceAtMost(constraints.maxWidth)
  
          layout(width, target) {
@@ -3104,9 +3308,11 @@
          }
      }
  }
+diff --git a/miuix-ui/src/commonMain/kotlin/top/yukonga/miuix/kmp/overlay/OverlayBottomSheet.kt b/miuix-ui/src/commonMain/kotlin/top/yukonga/miuix/kmp/overlay/OverlayBottomSheet.kt
+index 098206f..ba1bfe6 100644
 --- a/miuix-ui/src/commonMain/kotlin/top/yukonga/miuix/kmp/overlay/OverlayBottomSheet.kt
 +++ b/miuix-ui/src/commonMain/kotlin/top/yukonga/miuix/kmp/overlay/OverlayBottomSheet.kt
-@@ -5,6 +5,8 @@
+@@ -5,6 +5,8 @@ package top.yukonga.miuix.kmp.overlay
  
  import androidx.compose.animation.EnterTransition
  import androidx.compose.animation.ExitTransition
@@ -3115,7 +3321,7 @@
  import androidx.compose.runtime.Composable
  import androidx.compose.runtime.mutableStateOf
  import androidx.compose.runtime.remember
-@@ -22,6 +24,8 @@
+@@ -22,6 +24,8 @@ import top.yukonga.miuix.kmp.utils.MiuixPopupUtils.Companion.DialogLayout
   *
   * @param show Whether the [OverlayBottomSheet] is shown.
   * @param modifier The modifier to be applied to the [OverlayBottomSheet].
@@ -3124,7 +3330,7 @@
   * @param title Optional title to display at the top of the [OverlayBottomSheet].
   * @param startAction Optional [Composable] to display on the start side of the title (e.g. a close button).
   * @param endAction Optional [Composable] to display on the end side of the title (e.g. a submit button).
-@@ -46,6 +50,8 @@
+@@ -46,6 +50,8 @@ import top.yukonga.miuix.kmp.utils.MiuixPopupUtils.Companion.DialogLayout
  fun OverlayBottomSheet(
      show: Boolean,
      modifier: Modifier = Modifier,
@@ -3133,7 +3339,7 @@
      title: String? = null,
      startAction: @Composable (() -> Unit)? = null,
      endAction: @Composable (() -> Unit)? = null,
-@@ -62,6 +68,8 @@
+@@ -62,6 +68,8 @@ fun OverlayBottomSheet(
      allowDismiss: Boolean = true,
      enableNestedScroll: Boolean = true,
      renderInRootScaffold: Boolean = true,
@@ -3142,7 +3348,7 @@
      content: @Composable () -> Unit,
  ) {
      BottomSheetContentLayout(
-@@ -73,6 +81,9 @@
+@@ -73,6 +81,9 @@ fun OverlayBottomSheet(
          insideMargin = insideMargin,
          dragHandleColor = dragHandleColor,
          popupHost = { visible, hostContent ->
@@ -3152,7 +3358,7 @@
              val visibleState = remember { mutableStateOf(false) }
              visibleState.value = visible
              DialogLayout(
-@@ -85,8 +96,11 @@
+@@ -85,8 +96,11 @@ fun OverlayBottomSheet(
              ) {
                  hostContent()
              }
@@ -3164,9 +3370,11 @@
          title = title,
          startAction = startAction,
          endAction = endAction,
+diff --git a/miuix-ui/src/commonMain/kotlin/top/yukonga/miuix/kmp/overlay/OverlayCascadingListPopup.kt b/miuix-ui/src/commonMain/kotlin/top/yukonga/miuix/kmp/overlay/OverlayCascadingListPopup.kt
+index 0124fe2..7dd1e95 100644
 --- a/miuix-ui/src/commonMain/kotlin/top/yukonga/miuix/kmp/overlay/OverlayCascadingListPopup.kt
 +++ b/miuix-ui/src/commonMain/kotlin/top/yukonga/miuix/kmp/overlay/OverlayCascadingListPopup.kt
-@@ -16,6 +16,8 @@
+@@ -16,6 +16,8 @@ import top.yukonga.miuix.kmp.basic.DropdownDefaults
  import top.yukonga.miuix.kmp.basic.DropdownEntry
  import top.yukonga.miuix.kmp.basic.DropdownItem
  import top.yukonga.miuix.kmp.basic.ListPopupDefaults
@@ -3175,7 +3383,7 @@
  import top.yukonga.miuix.kmp.basic.PopupPositionProvider
  import top.yukonga.miuix.kmp.layout.CascadingListPopupLayout
  import top.yukonga.miuix.kmp.utils.MiuixPopupUtils.Companion.PopupLayout
-@@ -51,8 +53,13 @@
+@@ -51,8 +53,13 @@ fun OverlayCascadingListPopup(
      maxHeight: Dp? = null,
      minWidth: Dp = 200.dp,
      renderInRootScaffold: Boolean = true,
@@ -3189,7 +3397,7 @@
  ) {
      CascadingListPopupLayout(
          show = show,
-@@ -66,6 +73,7 @@
+@@ -66,6 +73,7 @@ fun OverlayCascadingListPopup(
                  enterTransition = EnterTransition.None,
                  exitTransition = ExitTransition.None,
                  renderInRootScaffold = renderInRootScaffold,
@@ -3197,7 +3405,7 @@
              ) {
                  hostContent()
              }
-@@ -79,7 +87,11 @@
+@@ -79,7 +87,11 @@ fun OverlayCascadingListPopup(
          enableWindowDim = enableWindowDim,
          maxHeight = maxHeight,
          minWidth = minWidth,
@@ -3209,9 +3417,11 @@
 +        collapseContent = collapseContent,
      )
  }
+diff --git a/miuix-ui/src/commonMain/kotlin/top/yukonga/miuix/kmp/overlay/OverlayDialog.kt b/miuix-ui/src/commonMain/kotlin/top/yukonga/miuix/kmp/overlay/OverlayDialog.kt
+index 815962d..dfaebed 100644
 --- a/miuix-ui/src/commonMain/kotlin/top/yukonga/miuix/kmp/overlay/OverlayDialog.kt
 +++ b/miuix-ui/src/commonMain/kotlin/top/yukonga/miuix/kmp/overlay/OverlayDialog.kt
-@@ -6,6 +6,7 @@
+@@ -6,6 +6,7 @@ package top.yukonga.miuix.kmp.overlay
  import androidx.compose.animation.EnterTransition
  import androidx.compose.animation.ExitTransition
  import androidx.compose.runtime.Composable
@@ -3219,7 +3429,7 @@
  import androidx.compose.runtime.mutableStateOf
  import androidx.compose.runtime.remember
  import androidx.compose.ui.Modifier
-@@ -20,6 +21,7 @@
+@@ -20,6 +21,7 @@ import top.yukonga.miuix.kmp.utils.MiuixPopupUtils.Companion.DialogLayout
   *
   * @param show Whether the [OverlayDialog] is shown.
   * @param modifier The modifier to be applied to the [OverlayDialog].
@@ -3227,7 +3437,7 @@
   * @param title The title of the [OverlayDialog].
   * @param titleColor The color of the title.
   * @param summary The summary of the [OverlayDialog].
-@@ -34,12 +36,18 @@
+@@ -34,12 +36,18 @@ import top.yukonga.miuix.kmp.utils.MiuixPopupUtils.Companion.DialogLayout
   * @param renderInRootScaffold Whether to render the dialog in the root (outermost) Scaffold.
   *   When true (default), the dialog covers the full screen. When false, it renders within the
   *   current Scaffold's bounds.
@@ -3246,7 +3456,7 @@
      title: String? = null,
      titleColor: Color = DialogDefaults.titleColor(),
      summary: String? = null,
-@@ -52,6 +60,10 @@
+@@ -52,6 +60,10 @@ fun OverlayDialog(
      insideMargin: DpSize = DialogDefaults.insideMargin,
      defaultWindowInsetsPadding: Boolean = true,
      renderInRootScaffold: Boolean = true,
@@ -3257,7 +3467,7 @@
      content: @Composable () -> Unit,
  ) {
      DialogContentLayout(
-@@ -70,18 +82,24 @@
+@@ -70,18 +82,24 @@ fun OverlayDialog(
                  enterTransition = EnterTransition.None,
                  exitTransition = ExitTransition.None,
                  enableAutoLargeScreen = false,
@@ -3282,9 +3492,11 @@
          content = content,
      )
  }
+diff --git a/miuix-ui/src/commonMain/kotlin/top/yukonga/miuix/kmp/overlay/OverlayListPopup.kt b/miuix-ui/src/commonMain/kotlin/top/yukonga/miuix/kmp/overlay/OverlayListPopup.kt
+index 548c381..e9f1823 100644
 --- a/miuix-ui/src/commonMain/kotlin/top/yukonga/miuix/kmp/overlay/OverlayListPopup.kt
 +++ b/miuix-ui/src/commonMain/kotlin/top/yukonga/miuix/kmp/overlay/OverlayListPopup.kt
-@@ -10,8 +10,10 @@
+@@ -10,8 +10,10 @@ import androidx.compose.runtime.mutableStateOf
  import androidx.compose.runtime.remember
  import androidx.compose.ui.Modifier
  import androidx.compose.ui.unit.Dp
@@ -3295,7 +3507,7 @@
  import top.yukonga.miuix.kmp.basic.PopupPositionProvider
  import top.yukonga.miuix.kmp.layout.ListPopupLayout
  import top.yukonga.miuix.kmp.utils.MiuixPopupUtils.Companion.PopupLayout
-@@ -45,6 +47,11 @@
+@@ -45,6 +47,11 @@ fun OverlayListPopup(
      maxHeight: Dp? = null,
      minWidth: Dp = ListPopupDefaults.MinWidth,
      renderInRootScaffold: Boolean = true,
@@ -3307,7 +3519,7 @@
      content: @Composable () -> Unit,
  ) {
      ListPopupLayout(
-@@ -59,6 +66,7 @@
+@@ -59,6 +66,7 @@ fun OverlayListPopup(
                  enterTransition = EnterTransition.None,
                  exitTransition = ExitTransition.None,
                  renderInRootScaffold = renderInRootScaffold,
@@ -3315,7 +3527,7 @@
              ) {
                  hostContent()
              }
-@@ -71,6 +79,10 @@
+@@ -71,6 +79,10 @@ fun OverlayListPopup(
          onDismissFinished = onDismissFinished,
          maxHeight = maxHeight,
          minWidth = minWidth,
@@ -3326,9 +3538,11 @@
          content = content,
      )
  }
+diff --git a/miuix-ui/src/commonMain/kotlin/top/yukonga/miuix/kmp/utils/MiuixPopupUtils.kt b/miuix-ui/src/commonMain/kotlin/top/yukonga/miuix/kmp/utils/MiuixPopupUtils.kt
+index 6827c5f..1250eb0 100644
 --- a/miuix-ui/src/commonMain/kotlin/top/yukonga/miuix/kmp/utils/MiuixPopupUtils.kt
 +++ b/miuix-ui/src/commonMain/kotlin/top/yukonga/miuix/kmp/utils/MiuixPopupUtils.kt
-@@ -29,6 +29,7 @@
+@@ -29,6 +29,7 @@ import androidx.compose.runtime.Stable
  import androidx.compose.runtime.getValue
  import androidx.compose.runtime.key
  import androidx.compose.runtime.mutableStateListOf
@@ -3336,7 +3550,7 @@
  import androidx.compose.runtime.mutableStateOf
  import androidx.compose.runtime.remember
  import androidx.compose.runtime.rememberUpdatedState
-@@ -66,6 +67,7 @@
+@@ -66,6 +67,7 @@ class MiuixPopupUtils {
          var exitTransition by mutableStateOf<ExitTransition?>(null)
          var enableWindowDim by mutableStateOf(true)
          var enableBackHandler by mutableStateOf(true)
@@ -3344,7 +3558,7 @@
          var dimEnterTransition by mutableStateOf<EnterTransition?>(null)
          var dimExitTransition by mutableStateOf<ExitTransition?>(null)
          var content by mutableStateOf<@Composable () -> Unit>({})
-@@ -80,6 +82,7 @@
+@@ -80,6 +82,7 @@ class MiuixPopupUtils {
          var exitTransition by mutableStateOf<ExitTransition?>(null)
          var enableWindowDim by mutableStateOf(true)
          var enableAutoLargeScreen by mutableStateOf(true)
@@ -3352,7 +3566,7 @@
          var dimEnterTransition by mutableStateOf<EnterTransition?>(null)
          var dimExitTransition by mutableStateOf<ExitTransition?>(null)
          var dimAlpha by mutableStateOf<MutableState<Float>?>(null)
-@@ -154,9 +157,14 @@
+@@ -154,9 +157,14 @@ class MiuixPopupUtils {
           * @param enableAutoLargeScreen Whether to automatically detect large screen and adjust animations.
           * @param dimEnterTransition Optional, custom enter animation for dim layer.
           * @param dimExitTransition Optional, custom exit animation for dim layer.
@@ -3367,7 +3581,7 @@
           * @param renderInRootScaffold Whether to render the dialog in the root (outermost) [Scaffold].
           *   When true (default), the dialog covers the full screen. When false, it renders within the
           *   current [Scaffold]'s bounds.
-@@ -169,6 +177,7 @@
+@@ -169,6 +177,7 @@ class MiuixPopupUtils {
              exitTransition: ExitTransition? = null,
              enableWindowDim: Boolean = true,
              enableAutoLargeScreen: Boolean = true,
@@ -3375,7 +3589,7 @@
              dimEnterTransition: EnterTransition? = null,
              dimExitTransition: ExitTransition? = null,
              dimAlpha: MutableState<Float>? = null,
-@@ -195,6 +204,7 @@
+@@ -195,6 +204,7 @@ class MiuixPopupUtils {
              val latestExit by rememberUpdatedState(exitTransition)
              val latestEnableDim by rememberUpdatedState(enableWindowDim)
              val latestEnableAutoLargeScreen by rememberUpdatedState(enableAutoLargeScreen)
@@ -3383,7 +3597,7 @@
              val latestDimEnter by rememberUpdatedState(dimEnterTransition)
              val latestDimExit by rememberUpdatedState(dimExitTransition)
              val latestDimAlpha by rememberUpdatedState(dimAlpha)
-@@ -206,6 +216,7 @@
+@@ -206,6 +216,7 @@ class MiuixPopupUtils {
                  state.exitTransition = latestExit
                  state.enableWindowDim = latestEnableDim
                  state.enableAutoLargeScreen = latestEnableAutoLargeScreen
@@ -3391,7 +3605,7 @@
                  state.dimEnterTransition = latestDimEnter
                  state.dimExitTransition = latestDimExit
                  state.dimAlpha = latestDimAlpha
-@@ -252,6 +263,7 @@
+@@ -252,6 +263,7 @@ class MiuixPopupUtils {
              exitTransition: ExitTransition? = null,
              enableWindowDim: Boolean = true,
              enableBackHandler: Boolean = true,
@@ -3399,7 +3613,7 @@
              dimEnterTransition: EnterTransition? = null,
              dimExitTransition: ExitTransition? = null,
              renderInRootScaffold: Boolean = true,
-@@ -276,6 +288,7 @@
+@@ -276,6 +288,7 @@ class MiuixPopupUtils {
              val latestExit by rememberUpdatedState(exitTransition)
              val latestEnableDim by rememberUpdatedState(enableWindowDim)
              val latestEnableBackHandler by rememberUpdatedState(enableBackHandler)
@@ -3407,7 +3621,7 @@
              val latestDimEnter by rememberUpdatedState(dimEnterTransition)
              val latestDimExit by rememberUpdatedState(dimExitTransition)
              val latestContent by rememberUpdatedState(content)
-@@ -285,9 +298,25 @@
+@@ -285,11 +298,27 @@ class MiuixPopupUtils {
                  state.exitTransition = latestExit
                  state.enableWindowDim = latestEnableDim
                  state.enableBackHandler = latestEnableBackHandler
@@ -3415,8 +3629,8 @@
                  state.dimEnterTransition = latestDimEnter
                  state.dimExitTransition = latestDimExit
                  state.content = latestContent
-+            }
-+
+             }
+ 
 +            // Prime the full-page producer before the popup entry is inserted into the root host.
 +            // PopupEntry takes over the reference for the exit animation after showState becomes
 +            // false, so the material never loses its sampled underlay halfway through closing.
@@ -3430,16 +3644,18 @@
 +                        MiuixPopupBackdropCapture.releaseConsumer()
 +                    }
 +                }
-             }
- 
++            }
++
              LaunchedEffect(visible.value) {
-@@ -344,8 +373,19 @@
+                 if (visible.value && popupStates.none { it.showState === state.showState }) {
+                     popupStates.add(state)
+@@ -344,9 +373,20 @@ class MiuixPopupUtils {
                  }
              }
              val dialogStates = LocalDialogStates.current
 -
              val effectiveLargeScreen = largeScreen && dialogState.enableAutoLargeScreen
-+
+ 
 +            val capturesCompleteUnderlay = dialogState.excludeFromBackdropCapture
 +            DisposableEffect(dialogState, capturesCompleteUnderlay) {
 +                if (capturesCompleteUnderlay) {
@@ -3451,14 +3667,14 @@
 +                    }
 +                }
 +            }
- 
++
              Box(modifier = Modifier.fillMaxSize()) {
                  if (dialogState.enableWindowDim) {
-@@ -455,6 +495,19 @@
-                 }
+                     AnimatedVisibility(
+@@ -456,6 +496,19 @@ class MiuixPopupUtils {
              }
              val popupStates = LocalPopupStates.current
-+
+ 
 +            val capturesCompleteUnderlay = popupState.excludeFromBackdropCapture &&
 +                (popupState.showState.value || visibleState.currentState || visibleState.targetState)
 +            DisposableEffect(popupState, capturesCompleteUnderlay) {
@@ -3471,10 +3687,11 @@
 +                    }
 +                }
 +            }
- 
++
              Box(modifier = Modifier.fillMaxSize()) {
                  if (popupState.enableWindowDim) {
-@@ -596,3 +649,23 @@
+                     AnimatedVisibility(
+@@ -596,3 +649,23 @@ internal val LocalPopupStates = staticCompositionLocalOf { mutableStateListOf<Mi
  internal val LocalDialogStates = staticCompositionLocalOf { mutableStateListOf<MiuixPopupUtils.DialogState>() }
  internal val LocalRootDialogStates = staticCompositionLocalOf<MutableList<MiuixPopupUtils.DialogState>?> { null }
  internal val LocalRootPopupStates = staticCompositionLocalOf<MutableList<MiuixPopupUtils.PopupState>?> { null }

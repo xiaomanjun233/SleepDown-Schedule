@@ -84,7 +84,6 @@ import com.xiaomanjun.sleepdownschedule.core.ui.chrome.LocalEditingCourseId
 import com.xiaomanjun.sleepdownschedule.core.ui.chrome.LocalSharedTransitionScope
 import com.xiaomanjun.sleepdownschedule.core.ui.text.LocalCourseTextMotionFrozen
 import com.xiaomanjun.sleepdownschedule.courseAllowsWeekPeriodDrag
-import com.xiaomanjun.sleepdownschedule.domain.course.nearestAvailableCourseMove
 import com.xiaomanjun.sleepdownschedule.feature.agent.homeCountdownShockwave
 import com.xiaomanjun.sleepdownschedule.feature.home.CourseAdjustmentBadge
 import com.xiaomanjun.sleepdownschedule.feature.home.LocalAdjustedCourseEditor
@@ -99,9 +98,12 @@ import com.xiaomanjun.sleepdownschedule.feature.home.day.homeCourseTextColor
 import com.xiaomanjun.sleepdownschedule.feature.home.day.homeForegroundColor
 import com.xiaomanjun.sleepdownschedule.feature.home.day.occurrenceOverrideKey
 import com.xiaomanjun.sleepdownschedule.feature.home.overlay.CourseBoundsSource
+import com.xiaomanjun.sleepdownschedule.feature.home.overlay.CourseOverlapBadge
 import com.xiaomanjun.sleepdownschedule.feature.home.overlay.CourseShortcutRequest
 import com.xiaomanjun.sleepdownschedule.feature.home.overlay.LocalCourseCopy
+import com.xiaomanjun.sleepdownschedule.feature.home.overlay.LocalCourseOverlapPreview
 import com.xiaomanjun.sleepdownschedule.feature.home.overlay.LocalCourseShortcuts
+import com.xiaomanjun.sleepdownschedule.feature.home.overlay.ScheduleOverlapEntry
 import com.xiaomanjun.sleepdownschedule.feature.home.overlay.courseRemovalMotion
 import com.xiaomanjun.sleepdownschedule.glass.ui.CourseGlassCard
 import com.xiaomanjun.sleepdownschedule.glass.ui.GlassSurface
@@ -186,11 +188,9 @@ fun WeekCourseBlock(
     stackIndex: Int = 0,
     cardOrderFraction: Float? = null,
     columnOrderFraction: Float? = null,
-    conflictWarning: Boolean = false,
-    conflictUnderlyingCourse: CourseEntity? = null,
-    conflictUnderlyingPeriodIndex: Int? = null,
-    conflictUnderlyingSpan: Int = 0,
-    onResolveConflict: (CourseEntity) -> Unit = {},
+    overlapEntries: List<ScheduleOverlapEntry> = emptyList(),
+    overlapEntryKey: String = "",
+    showOverlapBadge: Boolean = false,
     editMode: Boolean = false,
     editActivation: State<Float>,
     editingAllowed: Boolean = true,
@@ -246,6 +246,9 @@ fun WeekCourseBlock(
     SideEffect {
         // An existing occurrence can absorb the copied weeks without changing its layout.
         if (ownBoundsRef[0] != null) copyMotion?.reportTarget(course, editWeek)
+        if (ownBoundsRef[0] != null) {
+            weekEditMotionState?.reportCourseBounds(editWeek, course.id, ownBoundsRef[0])
+        }
     }
     val isOverlayTarget = activeOverlayTargetKey != null &&
         activeOverlayTargetWeek == editWeek &&
@@ -263,10 +266,6 @@ fun WeekCourseBlock(
     }
     var bodyDragging by remember(course.id, editWeek) { mutableStateOf(false) }
     var handleDragging by remember(course.id, editWeek) { mutableStateOf(false) }
-    var conflictActionResolving by remember(course.id, editWeek) { mutableStateOf(false) }
-    var conflictFlightTarget by remember(course.id, editWeek) { mutableStateOf<CourseEntity?>(null) }
-    val conflictPillDismiss = remember(course.id, editWeek) { Animatable(0f) }
-    val conflictCardFlight = remember(course.id, editWeek) { Animatable(0f) }
     val scope = rememberCoroutineScope()
     val screenHeightPx = with(density) { currentWindowSizeDp().height.toPx() }
     val screenWidthPx = with(density) { currentWindowSizeDp().width.toPx() }
@@ -312,6 +311,7 @@ fun WeekCourseBlock(
             ?: return ownBoundsRef[0]
         val bounds = coordinates.boundsInRoot()
         ownBoundsRef[0] = bounds
+        weekEditMotionState?.reportCourseBounds(editWeek, course.id, bounds)
         if (periodIndex == course.periods.minOrNull() || course.hasCustomTime()) {
             copyMotion?.reportSource(course, editWeek, bounds)
         }
@@ -357,12 +357,11 @@ fun WeekCourseBlock(
             weekdays = timeGrid?.weekdays.orEmpty()
         )
     }
-    val liftedVisualActive = bodyDragging || handleDragging || conflictActionResolving
+    val liftedVisualActive = bodyDragging || handleDragging
     val resizeHandleInputEnabled =
         editMode &&
             !customTimeLocked &&
             !bodyDragging &&
-            !conflictActionResolving &&
             (
                 activeOverlayCourseId == null ||
                     (handleDragging && activeOverlayCourseId == course.id)
@@ -370,15 +369,10 @@ fun WeekCourseBlock(
     LaunchedEffect(liftedVisualActive) {
         if (liftedVisualActive) onDragStateChanged(dayIndex, course.id) else onDragStateChanged(null, null)
     }
-    LaunchedEffect(conflictWarning) {
-        if (!conflictWarning) {
-            conflictActionResolving = false
-            conflictFlightTarget = null
-            conflictPillDismiss.snapTo(0f)
-            conflictCardFlight.snapTo(0f)
-        }
-    }
     val shortcuts = LocalCourseShortcuts.current
+    val overlapPreview = LocalCourseOverlapPreview.current
+    val currentOverlapEntries by rememberUpdatedState(overlapEntries)
+    val currentOverlapEntryKey by rememberUpdatedState(overlapEntryKey)
     val currentEditMode by rememberUpdatedState(editMode)
     val adjustedEditor = LocalAdjustedCourseEditor.current
     val adjustedOccurrenceDate = if (editingAllowed) null else
@@ -405,7 +399,14 @@ fun WeekCourseBlock(
     val clickBody by rememberUpdatedState<() -> Unit> {
         if (copyMotion?.active != true) {
             val bounds = refreshOwnBounds()
-            if (editingAllowed) onCourseClick(course, bounds)
+            if (!currentEditMode && overlapPreview != null && currentOverlapEntries.size > 1 && bounds != null) {
+                overlapPreview.open(
+                    entries = currentOverlapEntries,
+                    anchorKey = currentOverlapEntryKey,
+                    sourceRect = bounds,
+                    sourceCornerPx = with(density) { cardCorner.toPx() }
+                )
+            } else if (editingAllowed) onCourseClick(course, bounds)
             else adjustedOccurrenceDate?.let { adjustedEditor?.invoke(course.id, it, bounds) }
         }
     }
@@ -580,7 +581,8 @@ fun WeekCourseBlock(
             } == true
         }
     }
-    val hiddenByOverlay = hiddenByShortcut || copyMotion?.hides(course, editWeek) == true
+    val hiddenByOverlap = overlapPreview?.hides(course, dayIndex, editWeek) == true
+    val hiddenByOverlay = hiddenByShortcut || hiddenByOverlap || copyMotion?.hides(course, editWeek) == true
     val visibilityModifier = if (hiddenByOverlay) Modifier.graphicsLayer { alpha = 0f } else Modifier
     CourseBoundsSource(
         courseId = course.id,
@@ -605,108 +607,16 @@ fun WeekCourseBlock(
                 .homeCountdownShockwave()
                 .zIndex(if (liftedVisualActive) 3f else 0f)
         ) {
-            conflictUnderlyingCourse
-                ?.takeIf { conflictActionResolving && conflictUnderlyingSpan > 0 }
-                ?.let { underlyingCourse ->
-                    val sourcePosition = periodIndexes.indexOf(periodIndex).coerceAtLeast(0)
-                    val underlyingPosition = conflictUnderlyingPeriodIndex
-                        ?.let(periodIndexes::indexOf)
-                        ?.takeIf { it >= 0 }
-                        ?: sourcePosition
-                    val underlyingHeight = (
-                        (timeGrid?.let { it.bottom((underlyingPosition + conflictUnderlyingSpan).toFloat()) - it.top(underlyingPosition.toFloat()) }?.dp
-                            ?: (periodRowHeight * conflictUnderlyingSpan.toFloat())) - 4.dp
-                        ).coerceAtLeast(18.dp)
-                    val ownerReveal =
-                        (conflictCardFlight.value / 0.14f).coerceIn(0f, 1f)
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .offset(
-                                y = timeGrid?.let { it.top(underlyingPosition.toFloat()) - it.top(sourcePosition.toFloat()) }?.dp
-                                    ?: (periodRowHeight * (underlyingPosition - sourcePosition).toFloat())
-                            )
-                            .height(underlyingHeight)
-                            .graphicsLayer { alpha = ownerReveal }
-                    ) {
-                        CourseGlassCard(
-                            backdrop = activeCardBackdrop,
-                            config = config,
-                            course = underlyingCourse,
-                            followTouch = false,
-                            muted = subdued,
-                            modifier = Modifier.fillMaxSize(),
-                            shape = cardShape,
-                            onClick = null
-                        ) {
-                            WeekCourseOverlayCardContent(underlyingCourse, config)
-                        }
-                    }
-                }
-            conflictFlightTarget?.takeIf { conflictActionResolving }?.let { target ->
-                val flightProgress = conflictCardFlight.value.coerceIn(0f, 1f)
-                val sourcePosition = periodIndexes.indexOf(periodIndex).coerceAtLeast(0)
-                val orderedSourcePeriods = course.periods
-                    .distinct()
-                    .sortedBy { periodIndexes.indexOf(it).takeIf { index -> index >= 0 } ?: Int.MAX_VALUE }
-                val orderedTargetPeriods = target.periods
-                    .distinct()
-                    .sortedBy { periodIndexes.indexOf(it).takeIf { index -> index >= 0 } ?: Int.MAX_VALUE }
-                val segmentPeriodOrdinal = orderedSourcePeriods.indexOf(periodIndex).coerceAtLeast(0)
-                val targetPeriod = orderedTargetPeriods
-                    .getOrNull(segmentPeriodOrdinal)
-                    ?: orderedTargetPeriods.firstOrNull()
-                    ?: periodIndex
-                val targetPosition = periodIndexes.indexOf(targetPeriod)
-                    .takeIf { it >= 0 }
-                    ?: sourcePosition
-                val visibleDays = timeGrid?.weekdays.orEmpty()
-                val targetOffsetX = (if (visibleDays.isEmpty()) target.weekday - dayIndex else
-                    visibleDays.indexOf(target.weekday) - visibleDays.indexOf(dayIndex)) * gridColumnWidthPx
-                val targetOffsetY = (rowTopsPx.getOrNull(targetPosition) ?: targetPosition * periodRowHeightPx) -
-                    (rowTopsPx.getOrNull(sourcePosition) ?: sourcePosition * periodRowHeightPx)
-                val flightArcPx = with(density) { 10.dp.toPx() }
-                val flightElevationPx = with(density) { 14.dp.toPx() }
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(height)
-                        .graphicsLayer {
-                            translationX = targetOffsetX * flightProgress
-                            translationY = targetOffsetY * flightProgress -
-                                sin(Math.PI * flightProgress).toFloat() * flightArcPx
-                            val flightScale = 0.985f + 0.015f * flightProgress
-                            scaleX = flightScale
-                            scaleY = flightScale
-                            alpha = (flightProgress / 0.12f).coerceIn(0f, 1f)
-                            shadowElevation =
-                                sin(Math.PI * flightProgress).toFloat().coerceAtLeast(0f) *
-                                    flightElevationPx
-                            shape = cardShape
-                        }
-                ) {
-                    CourseGlassCard(
-                        backdrop = activeCardBackdrop,
-                        config = config,
-                        course = target,
-                        followTouch = false,
-                        modifier = Modifier.fillMaxSize(),
-                        shape = cardShape,
-                        onClick = null
-                    ) {
-                        WeekCourseOverlayCardContent(target, config)
-                    }
-                }
-            }
-            val showConflictBadge = conflictWarning && !editMode && !customTimeLocked
+            val hiddenByTuckHost = weekEditMotionState?.hidesTuckedHost(course.id, editWeek) == true
             // The page owns the entry spring. Cards observe its value only in their layer.
-            val cardTransformActive by remember(bodyDragging, handleDragging, conflictActionResolving,
-                isOverlayTarget, activeOverlayCourseId, course.id, editActivation, editingAllowed) {
+            val cardTransformActive by remember(bodyDragging, handleDragging,
+                isOverlayTarget, activeOverlayCourseId, course.id, editActivation, editingAllowed, hiddenByTuckHost) {
                 derivedStateOf {
                     bodyDragging || handleDragging || pressScale != 1f ||
                         (editingAllowed && editActivation.value != 0f) ||
-                        conflictActionResolving || isOverlayTarget ||
-                        activeOverlayCourseId == course.id
+                        isOverlayTarget ||
+                        activeOverlayCourseId == course.id ||
+                        hiddenByTuckHost
                 }
             }
             val cardTransformModifier = if (cardTransformActive) Modifier.graphicsLayer {
@@ -728,17 +638,13 @@ fun WeekCourseBlock(
                 }
                 scaleX = activeScale
                 scaleY = activeScale
-                val departureAlpha = if (conflictActionResolving) {
-                    1f - (conflictCardFlight.value / 0.12f).coerceIn(0f, 1f)
-                } else {
-                    1f
-                }
                 alpha = when {
+                    hiddenByTuckHost -> 0f
                     isOverlayTarget -> if (weekEditMotionState?.realCardVisible == true) 1f else 0f
                     // The overlay starts at the source bounds and owns the entire lift.
                     // Switching owners once also keeps the sampled grid stable under it.
                     activeOverlayCourseId == course.id -> 0f
-                    else -> departureAlpha
+                    else -> 1f
                 }
             } else Modifier
             Box(
@@ -761,7 +667,7 @@ fun WeekCourseBlock(
                     .height(displayedHeight),
                 shape = cardShape,
                 // Pager owns lifetime; scrolling never toggles a card's material nodes.
-                viewportMaterialVisible = !hiddenByOverlay &&
+                viewportMaterialVisible = !hiddenByOverlay && !hiddenByTuckHost &&
                     ((activeOverlayCourseId != course.id && !isOverlayTarget) ||
                         weekEditMotionState?.realCardVisible == true),
                 muted = subdued,
@@ -771,9 +677,6 @@ fun WeekCourseBlock(
             // The day column already knows the measured width. Subcomposing every card again
             // made a single prefetched page spend 17–24ms in measureAndLayout on the 120Hz phone.
             val badgeInset = when {
-                showConflictBadge -> courseBadgeContentInset(
-                    maxOf(20.dp, with(density) { 10.sp.toDp() } + 4.dp), cardCorner
-                )
                 !editingAllowed -> courseBadgeContentInset(with(density) { courseAdjustmentBadgeHeight() }, cardCorner)
                 else -> 0.dp
             }
@@ -784,89 +687,20 @@ fun WeekCourseBlock(
             }
             }
             }
-            if (!editingAllowed && !showConflictBadge) {
-                CourseAdjustmentBadge(if (muted) "停" else "补", activeCardBackdrop, config,
-                    Modifier.align(Alignment.BottomEnd).courseBadgeCornerAnchor(cardCorner).zIndex(7f))
-            }
-            if (showConflictBadge) {
-                val pillDismissProgress = conflictPillDismiss.value.coerceIn(0f, 1f)
-                val pillTextColor =
-                    if (glassUsesLightStyle(config)) ComposeColor.Black else ComposeColor.White
-                GlassSurface(
-                    nativeMaterial = true,
+            if (showOverlapBadge && overlapEntries.size > 1 && copyMotion?.active != true) {
+                CourseOverlapBadge(
+                    count = overlapEntries.size,
+                    cardCorner = cardCorner,
                     backdrop = activeCardBackdrop,
                     config = config,
-                    // The parent card owns pager/tail motion, as for adjustment badges.
-                    placementLayer = false,
                     modifier = Modifier
-                        .align(Alignment.BottomEnd)
-                        .courseBadgeCornerAnchor(cardCorner)
-                        .width((if (editingAllowed) 34.dp else 48.dp).coerceAtMost(cardLayoutWidth))
-                        .heightIn(min = 20.dp)
-                        .zIndex(8f)
-                        .graphicsLayer {
-                            val dismissScale = 1f - 0.30f * pillDismissProgress
-                            scaleX = dismissScale
-                            scaleY = dismissScale
-                            alpha = 1f - pillDismissProgress
-                        },
-                    shape = Capsule(),
-                    tokens = GlassTokens.pill(intensity = 0.86f).copy(
-                        surfaceAlpha = 0.32f,
-                        shadowAlpha = 0.18f,
-                        innerShadowAlpha = 0.12f
-                    ),
-                    selected = true,
-                    onClick = {
-                        if (!conflictActionResolving) {
-                            val moved = nearestAvailableCourseMove(
-                                course = course,
-                                week = editWeek,
-                                courses = allWeekCourses,
-                                periodIndexes = periodIndexes,
-                                weekdayCount = weekdayCount
-                            )
-                            if (moved != null) {
-                                conflictFlightTarget = moved
-                                conflictActionResolving = true
-                                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                                scope.launch {
-                                    conflictPillDismiss.snapTo(0f)
-                                    conflictCardFlight.snapTo(0f)
-                                    conflictPillDismiss.animateTo(
-                                        1f,
-                                        tween(
-                                            durationMillis = 165,
-                                            easing = CubicBezierEasing(0.32f, 0f, 0.68f, 1f)
-                                        )
-                                    )
-                                    delay(24)
-                                    conflictCardFlight.animateTo(
-                                        1f,
-                                        tween(
-                                            durationMillis = 420,
-                                            easing = CubicBezierEasing(0.16f, 0.82f, 0.18f, 1f)
-                                        )
-                                    )
-                                    onResolveConflict(moved)
-                                }
-                            } else {
-                                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                            }
-                        }
-                    }
-                ) {
-                    Text(
-                        text = if (editingAllowed) "冲突" else if (muted) "停·冲突" else "补·冲突",
-                        modifier = Modifier.align(Alignment.Center).padding(horizontal = 2.dp, vertical = 2.dp),
-                        fontSize = 8.sp,
-                        lineHeight = 10.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = pillTextColor,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                }
+                        .align(Alignment.TopEnd)
+                        .zIndex(7f)
+                )
+            }
+            if (!editingAllowed) {
+                CourseAdjustmentBadge(if (muted) "停" else "补", activeCardBackdrop, config,
+                    Modifier.align(Alignment.BottomEnd).courseBadgeCornerAnchor(cardCorner).zIndex(7f))
             }
             val floatingCardOwnsVisual = (isOverlayTarget || activeOverlayCourseId == course.id) &&
                 weekEditMotionState?.realCardVisible != true

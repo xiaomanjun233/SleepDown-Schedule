@@ -180,7 +180,10 @@ fun rememberCourseEditorMotionState(): CourseEditorMotionState = remember { Cour
 class CourseEditorSourceHandoff(
     val backgroundDepth: Float,
     internal val awaitReady: suspend () -> Unit,
-    internal val release: () -> Unit
+    internal val release: () -> Unit,
+    internal val bindProgress: (((() -> Float)?) -> Unit)? = null,
+    internal val shouldPreserveBackgroundOnClose: (() -> Boolean)? = null,
+    internal val onCloseFinished: (() -> Unit)? = null
 )
 
 data class CourseEditorOverlayRequest(
@@ -341,9 +344,12 @@ internal fun CourseEditorContainerOverlayHost(
                 try {
                     updatePhase(CourseEditorOverlayPhase.Preparing)
                     renderedRequest = request
+                    request.sourceHandoff?.bindProgress?.invoke { progress.value }
                     latestOnRenderedCourseIdChange(request.course.id)
                     progress.snapTo(0f)
-                    motionState.backgroundZoom.snapTo(1f)
+                    val initialZoom = 1f + (CourseEditorMotion.BackgroundZoomOpenScale - 1f) *
+                        (request.sourceHandoff?.backgroundDepth ?: 0f).coerceIn(0f, 1f)
+                    motionState.backgroundZoom.snapTo(initialZoom)
                     var waitedFrames = 0
                     while (waitedFrames < 12 && (rootSize.width <= 0 || rootSize.height <= 0)) {
                         withFrameNanos { }
@@ -369,11 +375,13 @@ internal fun CourseEditorContainerOverlayHost(
                 // The background depth (blur + zoom) trails the card on a longer, gentler
                 // ease-out so it keeps settling after the card has opened — the inertial pull
                 // on the home surface behind the editor.
-                launch {
-                    motionState.backgroundRetarget.animate(motionState.backgroundZoom,
-                        CourseEditorMotion.BackgroundZoomOpenScale, CourseEditorMotion.BackgroundZoomOpenDurationMillis,
-                        CourseEditorMotion.BackgroundZoomInertialEasing,
-                        if (resuming) 0 else CourseEditorMotion.BackgroundZoomDelayMillis)
+                if (kotlin.math.abs(motionState.backgroundZoom.value - CourseEditorMotion.BackgroundZoomOpenScale) > 0.001f) {
+                    launch {
+                        motionState.backgroundRetarget.animate(motionState.backgroundZoom,
+                            CourseEditorMotion.BackgroundZoomOpenScale, CourseEditorMotion.BackgroundZoomOpenDurationMillis,
+                            CourseEditorMotion.BackgroundZoomInertialEasing,
+                            if (resuming) 0 else CourseEditorMotion.BackgroundZoomDelayMillis)
+                    }
                 }
             }
             updatePhase(CourseEditorOverlayPhase.Open)
@@ -382,6 +390,9 @@ internal fun CourseEditorContainerOverlayHost(
                 editorContentMounted = true
             }
         } else if (renderedRequest != null) {
+            val closingRequest = renderedRequest
+            val preserveBackgroundOnClose =
+                closingRequest?.sourceHandoff?.shouldPreserveBackgroundOnClose?.invoke() == true
             // Native content stays with its shell through the return; inputs are blocked below.
             if (preloadContent) {
                 focusManager.clearFocus(force = true)
@@ -390,26 +401,44 @@ internal fun CourseEditorContainerOverlayHost(
             if (!preloadContent) editorContentMounted = false
             updatePhase(CourseEditorOverlayPhase.Closing)
             coroutineScope {
-                launch {
-                    motionState.retarget.animate(progress, 0f, CourseEditorMotion.CloseDurationMillis,
-                        continuation = motionState.curveContinuity)
+                val bgJob = launch {
+                    if (preserveBackgroundOnClose) {
+                        snapshotFlow {
+                            closingRequest?.sourceHandoff?.shouldPreserveBackgroundOnClose?.invoke() == true
+                        }.first { !it }
+                    }
+                    motionState.backgroundRetarget.animate(
+                        motionState.backgroundZoom,
+                        1f,
+                        CourseEditorMotion.BackgroundZoomCloseDurationMillis,
+                        CourseEditorMotion.BackgroundZoomInertialEasing
+                    )
                 }
-                // Finish the background together with the card so material restoration does
-                // not wait for an additional invisible Closing tail.
-                launch {
-                    motionState.backgroundRetarget.animate(motionState.backgroundZoom, 1f,
-                        CourseEditorMotion.BackgroundZoomCloseDurationMillis, CourseEditorMotion.BackgroundZoomInertialEasing)
+                motionState.retarget.animate(
+                    progress,
+                    0f,
+                    CourseEditorMotion.CloseDurationMillis,
+                    continuation = motionState.curveContinuity
+                )
+                if (closingRequest?.sourceHandoff?.shouldPreserveBackgroundOnClose?.invoke() == true) {
+                    bgJob.cancel()
                 }
             }
+            motionState.backgroundZoom.snapTo(1f)
             editorContentMounted = false
             updatePhase(CourseEditorOverlayPhase.Disposing)
             renderedRequest = null
             latestOnRenderedCourseIdChange(null)
             motionState.retractTo(null)
             updatePhase(CourseEditorOverlayPhase.Idle)
+            closingRequest?.sourceHandoff?.bindProgress?.invoke(null)
+            closingRequest?.sourceHandoff?.onCloseFinished?.invoke()
         } else {
             if (motionState.phase != CourseEditorOverlayPhase.Idle || editorContentMounted || renderedRequest != null) {
                 updatePhase(CourseEditorOverlayPhase.Disposing)
+            }
+            if (motionState.backgroundZoom.value != 1f) {
+                motionState.backgroundZoom.snapTo(1f)
             }
             editorContentMounted = false
             latestOnRenderedCourseIdChange(null)
@@ -591,9 +620,10 @@ internal fun CourseEditorContainerOverlayHost(
                 with(density) { 6.dp.toPx() }, with(density) { 5.dp.toPx() },
                 hasSourceTransform, preloadContent, earlyContentHandoff = true)
             val frames: (Float) -> FloatArray = { p ->
+                val taperVal = courseEditorOpeningTaper(p, from.center.y - to.center.y, to.height, closing)
                 rebased.frame(LiquidMorphInput(from, to, p,
                     if (closing) LiquidMorphDirection.Closing else LiquidMorphDirection.Opening))
-                    .curveValues(courseEditorOpeningTaper(p, from.center.y - to.center.y, to.height, closing))
+                    .curveValues(taperVal)
             }
             frames
         }

@@ -3,14 +3,69 @@ package com.xiaomanjun.sleepdownschedule
 import com.xiaomanjun.sleepdownschedule.glass.ui.courseGlassTintAlpha
 import com.xiaomanjun.sleepdownschedule.glass.ui.courseSimpleBlurTintAlpha
 import com.xiaomanjun.sleepdownschedule.glass.ui.courseGlassSurfaceColor
+import com.xiaomanjun.sleepdownschedule.glass.ui.nativeCourseCardTintSpec
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.compositeOver
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class CourseGlassTintTest {
+    @Test fun lightWallpaperFreeGlowCardsKeepBackdropBlurAndBottomLitGradient() {
+        val spec = nativeCourseCardTintSpec(
+            tintStrength = 0.5f,
+            hasWallpaper = false,
+            lightCardBacking = true,
+            hasCourse = true,
+            nativeEdgeEffects = true,
+            hasBackdrop = true,
+        )
+        assertEquals(1f, spec.blurRadiusScale, 0.0001f)
+        assertTrue(spec.translucentOverBackdrop)
+        assertEquals(0.20f, spec.topTintFloor, 0.0001f)
+        assertEquals(0.35f, spec.alpha, 0.0001f)
+
+        val noBackdrop = nativeCourseCardTintSpec(
+            tintStrength = 0.5f,
+            hasWallpaper = false,
+            lightCardBacking = true,
+            hasCourse = true,
+            nativeEdgeEffects = true,
+            hasBackdrop = false,
+        )
+        assertFalse(noBackdrop.translucentOverBackdrop)
+    }
+
+    @Test fun wallpaperAndDarkGlowCardsRetainTheirGradientSpecs() {
+        val wallpaper = nativeCourseCardTintSpec(
+            tintStrength = 0.6f,
+            hasWallpaper = true,
+            lightCardBacking = false,
+            hasCourse = true,
+            nativeEdgeEffects = true,
+            hasBackdrop = true,
+        )
+        assertEquals(1f, wallpaper.blurRadiusScale, 0.0001f)
+        assertTrue(wallpaper.translucentOverBackdrop)
+        assertEquals(0.20f, wallpaper.topTintFloor, 0.0001f)
+        assertEquals(0.6f, wallpaper.alpha, 0.0001f)
+
+        val darkFlat = nativeCourseCardTintSpec(
+            tintStrength = 0.5f,
+            hasWallpaper = false,
+            lightCardBacking = false,
+            hasCourse = true,
+            nativeEdgeEffects = true,
+            hasBackdrop = true,
+        )
+        assertEquals(1f, darkFlat.blurRadiusScale, 0.0001f)
+        assertTrue(darkFlat.translucentOverBackdrop)
+        assertEquals(0.55f, darkFlat.topTintFloor, 0.0001f)
+        assertEquals(0.5f * (0x66 / 255f), darkFlat.alpha, 0.0001f)
+    }
+
     @Test fun flattenedSurfacePreservesTintAndNeutralFillsAtAlphaBoundaries() {
         for (light in listOf(false, true)) for (alpha in listOf(0f, 0.5f, 1f)) {
             val tint = Color(0xFF4080C0).copy(alpha = alpha)
@@ -19,10 +74,11 @@ class CourseGlassTintTest {
             val black = Color.Black.copy(alpha = if (light) 0.004f else 0.014f)
             val expected = black.compositeOver(white.compositeOver(tint.compositeOver(background)))
             val actual = courseGlassSurfaceColor(tint, light).compositeOver(background)
-            assertEquals(expected.red, actual.red, 0.0001f)
-            assertEquals(expected.green, actual.green, 0.0001f)
-            assertEquals(expected.blue, actual.blue, 0.0001f)
-            assertEquals(expected.alpha, actual.alpha, 0.0001f)
+            // Compose composites in premultiplied 8-bit color; allow one channel step.
+            assertEquals(expected.red, actual.red, 0.005f)
+            assertEquals(expected.green, actual.green, 0.005f)
+            assertEquals(expected.blue, actual.blue, 0.005f)
+            assertEquals(expected.alpha, actual.alpha, 0.005f)
         }
     }
 

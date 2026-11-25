@@ -69,7 +69,7 @@ internal class CourseMaterialSampling(
         if (Build.VERSION.SDK_INT >= 34) com.itos.coui.effect.CouiCausticPrograms() else null
     }
     val supportsTexture: Boolean get() = Build.VERSION.SDK_INT >= 33 && hasStaticBitmap
-    val hasStaticBitmap: Boolean get() = pixels.value?.previewBlur == null
+    val hasStaticBitmap: Boolean get() = pixels.value?.let { it.previewBlur == null } == true
     val textureReady: Boolean get() = supportsTexture && pixels.value?.let {
         texturePyramid.value?.source === it.bitmap
     } == true

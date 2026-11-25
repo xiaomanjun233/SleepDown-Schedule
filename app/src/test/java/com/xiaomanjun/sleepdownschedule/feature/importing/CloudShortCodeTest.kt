@@ -50,6 +50,22 @@ class CloudShortCodeTest {
     }
 
     @Test
+    fun dottedTermStartDateCanBeSharedAndIsNormalized() {
+        val config = defaultConfig().copy(termStartDate = "2026.08.30")
+        val periods = listOf(PeriodEntity(1, "08:00", "08:45"))
+        val course = CourseEntity(
+            name = "高等数学", teacher = "林老师", location = "A101", weekday = 1,
+            periods = listOf(1), weeks = listOf(1), weekParity = WeekParity.ALL, note = null
+        )
+
+        val payload = CloudShortCode.buildPayload(config, periods, listOf(course), TimetableCatalog())
+        val restored = ScheduleImportParser.parse(payload, config).getOrThrow()
+
+        assertEquals("2026-08-30", restored.config.termStartDate)
+        assertEquals(course.name, restored.courses.single().name)
+    }
+
+    @Test
     fun uploadsAndResolvesThroughTheCloudContract() {
         val payload = """{"courses":[{"name":"高等数学","day":1,"weeks":[1]}],"timeSlots":[]}"""
         val server = HttpServer.create(InetSocketAddress("127.0.0.1", 0), 0)

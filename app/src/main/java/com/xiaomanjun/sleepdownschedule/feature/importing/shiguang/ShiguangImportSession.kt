@@ -8,6 +8,7 @@ import com.xiaomanjun.sleepdownschedule.WeekParity
 import com.xiaomanjun.sleepdownschedule.domain.schedule.courseAnchorPeriodsForTimeRange
 import com.xiaomanjun.sleepdownschedule.domain.schedule.normalizeCourseClock
 import com.xiaomanjun.sleepdownschedule.domain.schedule.parseCoursePeriodTimes
+import com.xiaomanjun.sleepdownschedule.domain.schedule.parseScheduleDate
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.builtins.ListSerializer
 import java.time.LocalTime
@@ -113,10 +114,13 @@ internal class ShiguangImportSession {
         require(parsed.defaultClassDuration in 1..300) { "defaultClassDuration 无效" }
         require(parsed.defaultBreakDuration in 0..300) { "defaultBreakDuration 无效" }
         require(parsed.firstDayOfWeek in 1..7) { "firstDayOfWeek 必须在 1 到 7 之间" }
-        parsed.semesterStartDate?.let { java.time.LocalDate.parse(it) }
+        val semesterStartDate = parsed.semesterStartDate?.let { value ->
+            parseScheduleDate(value)?.toString()
+                ?: throw IllegalArgumentException("semesterStartDate 日期无效")
+        }
         synchronized(lock) {
             require(active) { "当前没有正在执行的拾光导入任务" }
-            courseConfig = parsed
+            courseConfig = parsed.copy(semesterStartDate = semesterStartDate)
         }
     }
 

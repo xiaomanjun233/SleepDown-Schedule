@@ -25,8 +25,17 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.unit.Velocity
 import com.xiaomanjun.sleepdownschedule.CourseEntity
+import com.xiaomanjun.sleepdownschedule.WeekParity
+import com.xiaomanjun.sleepdownschedule.domain.course.buildWeekConflictGroups
+import com.xiaomanjun.sleepdownschedule.domain.schedule.courseWeekDisplayFragments
+import com.xiaomanjun.sleepdownschedule.domain.schedule.parityMatches
+import com.xiaomanjun.sleepdownschedule.exactTimeWeekPlacement
 import com.xiaomanjun.sleepdownschedule.feature.home.day.coursesVisibleInWeek
 import com.xiaomanjun.sleepdownschedule.feature.home.day.occurrenceOverrideKey
+import com.xiaomanjun.sleepdownschedule.feature.home.overlay.ScheduleOverlapSlot
+import com.xiaomanjun.sleepdownschedule.feature.home.overlay.layoutScheduleOverlapSlots
+import com.xiaomanjun.sleepdownschedule.feature.home.overlay.overlapEntryKey
+import com.xiaomanjun.sleepdownschedule.hasCustomTime
 import kotlin.math.exp
 import kotlin.math.pow
 import kotlin.math.roundToInt
@@ -34,6 +43,7 @@ import kotlin.math.sin
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
 
 internal fun continuousSpanFrom(course: CourseEntity, start: Int, periodIndexes: List<Int>): Int {
@@ -287,6 +297,37 @@ internal class WeekEditOverlayController(
     var realCardVisible by mutableStateOf(false)
         private set
 
+    private val tuckUnderProgressAnim = Animatable(0f)
+    var tuckUnderHostCourse by mutableStateOf<CourseEntity?>(null)
+        private set
+    var tuckUnderHostBounds by mutableStateOf<Rect?>(null)
+        private set
+    var tuckUnderHostWeek by mutableIntStateOf(0)
+        private set
+    var tuckUnderOverlapCount by mutableIntStateOf(0)
+        private set
+    private val visibleCourseBounds = mutableMapOf<Pair<Int, Long>, Rect>()
+
+    val tuckUnderActive: Boolean
+        get() = tuckUnderHostCourse != null && tuckUnderHostBounds != null
+    val tuckUnderProgress: Float
+        get() = tuckUnderProgressAnim.value
+
+    fun liveTuckUnderHostBounds(): Rect? =
+        tuckUnderHostBounds?.translate(0f, -scrollState.value.toFloat())
+
+    fun reportCourseBounds(week: Int, courseId: Long, bounds: Rect?) {
+        if (bounds == null || bounds.isEmpty) return
+        visibleCourseBounds[week to courseId] = bounds.translate(0f, scrollState.value.toFloat())
+    }
+
+    fun hidesTuckedHost(courseId: Long, week: Int): Boolean =
+        request != null &&
+            !realCardVisible &&
+            tuckUnderActive &&
+            tuckUnderHostWeek == week &&
+            tuckUnderHostCourse?.id == courseId
+
     val offsetX: Float get() =
         when {
             releaseFrameActive -> releaseFrameX
@@ -338,6 +379,12 @@ internal class WeekEditOverlayController(
         releaseFrameY = 0f
         releaseFrameHeight = 0f
         releaseFrameActive = false
+        tuckUnderHostCourse = null
+        tuckUnderHostBounds = null
+        tuckUnderHostWeek = 0
+        tuckUnderOverlapCount = 0
+        visibleCourseBounds.clear()
+        scope.launch { tuckUnderProgressAnim.snapTo(0f) }
     }
 
     fun start(nextRequest: WeekEditOverlayRequest) {
@@ -364,7 +411,12 @@ internal class WeekEditOverlayController(
         releaseFrameActive = false
         dragPointerX = nextRequest.initialPointerPosition.x
         dragPointerY = nextRequest.initialPointerPosition.y
+        tuckUnderHostCourse = null
+        tuckUnderHostBounds = null
+        tuckUnderHostWeek = 0
+        tuckUnderOverlapCount = 0
         scope.launch {
+            tuckUnderProgressAnim.snapTo(0f)
             overlayX.snapTo(0f)
             overlayY.snapTo(0f)
             overlayHeight.snapTo(nextRequest.sourceBounds.height)
@@ -487,10 +539,13 @@ internal class WeekEditOverlayController(
         val edited = activeRequest.course.copy(weekday = target.weekday, periods = target.periods,
             weeks = listOf(activeRequest.destinationWeek), weekParity = com.xiaomanjun.sleepdownschedule.WeekParity.ALL)
         val crossingWeek = activeRequest.destinationWeek != activeRequest.editWeek
-        val canSave = target.valid && canMoveToWeekday(target.weekday) &&
-            !hasWeekCourseEditConflict(if (crossingWeek) activeRequest.course.copy(id = -1) else activeRequest.course,
-                edited, activeRequest.weekCourses, activeRequest.destinationWeek) &&
-            (crossingWeek || edited.weekday != activeRequest.course.weekday || edited.periods != activeRequest.course.periods)
+        val canSave = canCommitWeekCourseEditMove(
+            target = target,
+            canMoveToWeekday = canMoveToWeekday(target.weekday),
+            crossingWeek = crossingWeek,
+            original = activeRequest.course,
+            edited = edited
+        )
         val targetX = if (canSave) activeRequest.columnDeltaTo(target.weekday) * activeRequest.gridColumnWidthPx else 0f
         val targetY = if (canSave) {
             activeRequest.rowTopFor(target.periods.firstOrNull() ?: activeRequest.periodIndex) -
@@ -499,6 +554,13 @@ internal class WeekEditOverlayController(
             0f
         }
         if (canSave) {
+            val overlapOutcome = predictWeekEditOverlapOutcome(
+                original = activeRequest.course,
+                edited = edited,
+                weekCourses = activeRequest.weekCourses,
+                periodIndexes = activeRequest.periodIndexes,
+                week = activeRequest.destinationWeek
+            )
             committedTargetKey = edited.occurrenceOverrideKey()
             committedTargetWeek = activeRequest.destinationWeek
             awaitingCommit = true
@@ -506,7 +568,10 @@ internal class WeekEditOverlayController(
                 targetX = targetX,
                 targetY = targetY,
                 targetHeight = activeRequest.heightForSpan(activeRequest.currentSpan, target.periods.first(), activeRequest.heightForSpan(activeRequest.currentSpan) - activeRequest.sourceBounds.height).coerceAtLeast(1f),
-                releaseVelocity = velocity
+                releaseVelocity = velocity,
+                overlappedHost = if (overlapOutcome.movedCardEndsBehindFront) overlapOutcome.frontHostCourse else null,
+                hostWeek = activeRequest.destinationWeek,
+                overlapCount = overlapOutcome.overlapCount
             )
             onUpdateCourseSingleWeek(activeRequest.course, edited, activeRequest.editWeek)
         } else {
@@ -541,15 +606,24 @@ internal class WeekEditOverlayController(
             weekdayCount = activeRequest.weekdayCount
         )
         val edited = activeRequest.course.copy(periods = target.periods)
-        val canSave = target.valid &&
-            !hasWeekCourseEditConflict(activeRequest.course, edited, activeRequest.weekCourses, activeRequest.editWeek) &&
-            edited.periods != activeRequest.course.periods
+        val canSave = canCommitWeekCourseEditResize(
+            target = target,
+            original = activeRequest.course,
+            edited = edited
+        )
         val targetHeight = if (canSave) {
             activeRequest.heightForSpan(targetSpan, gap = resizePaddingPx)
         } else {
             activeRequest.sourceBounds.height
         }
         if (canSave) {
+            val overlapOutcome = predictWeekEditOverlapOutcome(
+                original = activeRequest.course,
+                edited = edited,
+                weekCourses = activeRequest.weekCourses,
+                periodIndexes = activeRequest.periodIndexes,
+                week = activeRequest.editWeek
+            )
             committedTargetKey = edited.copy(weeks = listOf(activeRequest.editWeek)).occurrenceOverrideKey()
             committedTargetWeek = activeRequest.editWeek
             awaitingCommit = true
@@ -557,7 +631,10 @@ internal class WeekEditOverlayController(
                 targetX = 0f,
                 targetY = 0f,
                 targetHeight = targetHeight,
-                releaseVelocity = Velocity(0f, velocity.y * WeekEditResizeDragGain)
+                releaseVelocity = Velocity(0f, velocity.y * WeekEditResizeDragGain),
+                overlappedHost = if (overlapOutcome.movedCardEndsBehindFront) overlapOutcome.frontHostCourse else null,
+                hostWeek = activeRequest.editWeek,
+                overlapCount = overlapOutcome.overlapCount
             )
             onUpdateCourseSingleWeek(activeRequest.course, edited, activeRequest.editWeek)
         } else {
@@ -593,7 +670,10 @@ internal class WeekEditOverlayController(
         targetX: Float,
         targetY: Float,
         targetHeight: Float,
-        releaseVelocity: Velocity
+        releaseVelocity: Velocity,
+        overlappedHost: CourseEntity? = null,
+        hostWeek: Int = 0,
+        overlapCount: Int = 0
     ) {
         if (landingFlightRunning || landingFlightComplete) return
         val landedRequest = request ?: return
@@ -602,6 +682,19 @@ internal class WeekEditOverlayController(
             landedRequest.sourceBounds.top + targetY + targetHeight / 2f + scrollState.value
         )
         val landingWeek = committedTargetWeek
+        val resolvedHostBounds = overlappedHost?.let { visibleCourseBounds[hostWeek to it.id] }
+        if (overlappedHost != null && resolvedHostBounds != null) {
+            tuckUnderHostCourse = overlappedHost
+            tuckUnderHostBounds = resolvedHostBounds
+            tuckUnderHostWeek = hostWeek
+            tuckUnderOverlapCount = overlapCount.coerceAtLeast(2)
+        } else {
+            tuckUnderHostCourse = null
+            tuckUnderHostBounds = null
+            tuckUnderHostWeek = 0
+            tuckUnderOverlapCount = 0
+        }
+        val tuckMode = tuckUnderHostCourse != null && tuckUnderHostBounds != null
         landingFlightRunning = true
         // Publish the exact release pose synchronously. Animatable.snapTo is suspendable, so
         // waiting to leave direct-manipulation mode inside the coroutine could leave one rendered
@@ -615,86 +708,109 @@ internal class WeekEditOverlayController(
             overlayX.snapTo(gestureTargetX)
             overlayY.snapTo(gestureTargetY)
             overlayHeight.snapTo(gestureTargetHeight)
+            if (tuckMode) tuckUnderProgressAnim.snapTo(0f)
             releaseFrameActive = false
-            // Reuse the original conflict-return flight: the same damped spring handles a legal
-            // destination and a rejected drop (whose target is the source). This keeps the release
-            // continuous with the finger instead of pinning the clone through a new tween.
-            val landingPositionSpec = spring<Float>(dampingRatio = 0.66f, stiffness = 390f)
-            val landingHeightSpec = spring<Float>(dampingRatio = 0.66f, stiffness = 360f)
-            val xJob = launch {
-                overlayX.animateTo(
-                    targetX,
-                    landingPositionSpec,
-                    initialVelocity = releaseVelocity.x.coerceIn(-2_400f, 2_400f)
-                )
+            var rippleStarted = false
+            fun playContactRipple() {
+                if (rippleStarted || request !== landedRequest) return
+                rippleStarted = true
+                startLandingRipple(WeekEditLandingRipple(
+                    centerInScrollContent = if (realCardTargetMeasured) realCardCenterInScrollContent else projectedCenter,
+                    radiusPx = maxOf(landedRequest.gridColumnWidthPx * 3.8f, landedRequest.periodRowHeightPx * 3f),
+                    week = landingWeek
+                ))
             }
-            val yJob = launch {
-                overlayY.animateTo(
-                    targetY,
-                    landingPositionSpec,
-                    initialVelocity = releaseVelocity.y.coerceIn(-2_400f, 2_400f)
-                )
-            }
-            val heightJob = launch {
-                overlayHeight.animateTo(
-                    targetHeight,
-                    landingHeightSpec,
-                    initialVelocity = releaseVelocity.y.coerceIn(-1_800f, 1_800f)
-                )
-            }
-            val scaleJob = launch {
-                var reachedLiftPeak = false
-                var rippleStarted = false
-                fun playContactRipple() {
-                    if (rippleStarted || request !== landedRequest) return
-                    rippleStarted = true
-                    startLandingRipple(WeekEditLandingRipple(
-                        centerInScrollContent = if (realCardTargetMeasured) realCardCenterInScrollContent else projectedCenter,
-                        radiusPx = maxOf(landedRequest.gridColumnWidthPx * 3.8f, landedRequest.periodRowHeightPx * 3f),
-                        week = landingWeek
-                    ))
+            if (tuckMode) {
+                // Phase 1: Dropped card lands squarely ON TOP of the front card first (zIndex = 3f).
+                val alignSpec = tween<Float>(durationMillis = 130, easing = CubicBezierEasing(0.20f, 0.80f, 0.24f, 1.0f))
+                coroutineScope {
+                    launch { overlayX.animateTo(targetX, alignSpec) }
+                    launch { overlayY.animateTo(targetY, alignSpec) }
+                    launch { overlayHeight.animateTo(targetHeight, alignSpec) }
+                    launch { overlayRotation.animateTo(0f, alignSpec) }
+                    launch { overlayScale.animateTo(1f, alignSpec) }
+                    launch { overlayLift.animateTo(0f, alignSpec) }
                 }
-                overlayScale.animateTo(
-                    1f,
-                    keyframes {
-                        // Land on the same spring as the card position, with a distinct
-                        // compression and rebound entirely on the moving foreground card.
-                        durationMillis = 350
-                        1.03f at 115 using FastOutSlowInEasing
-                        0.973f at 183 using FastOutSlowInEasing
-                        1.014f at 265 using FastOutSlowInEasing
-                    }
+                // Phase 2: Move noticeably downward while shrinking and fading to the bottom limit, then
+                // fly back behind the front card into its underneath slot, followed by an elastic rebound on the top card.
+                tuckUnderProgressAnim.animateTo(
+                    targetValue = 1f,
+                    animationSpec = tween(durationMillis = 600, easing = LinearEasing)
                 ) {
-                    // Signal the first compression of the visible landing, even while the
-                    // repository and the real card are still preparing the handoff.
-                    if (value > 1.01f) reachedLiftPeak = true
-                    if (reachedLiftPeak && value < 0.995f) playContactRipple()
+                    if (!rippleStarted && value >= 0.74f) playContactRipple()
                 }
                 playContactRipple()
+            } else {
+                // Reuse the original conflict-return flight: the same damped spring handles a legal
+                // destination and a rejected drop (whose target is the source). This keeps the release
+                // continuous with the finger instead of pinning the clone through a new tween.
+                val landingPositionSpec = spring<Float>(dampingRatio = 0.66f, stiffness = 390f)
+                val landingHeightSpec = spring<Float>(dampingRatio = 0.66f, stiffness = 360f)
+                val xJob = launch {
+                    overlayX.animateTo(
+                        targetX,
+                        landingPositionSpec,
+                        initialVelocity = releaseVelocity.x.coerceIn(-2_400f, 2_400f)
+                    )
+                }
+                val yJob = launch {
+                    overlayY.animateTo(
+                        targetY,
+                        landingPositionSpec,
+                        initialVelocity = releaseVelocity.y.coerceIn(-2_400f, 2_400f)
+                    )
+                }
+                val heightJob = launch {
+                    overlayHeight.animateTo(
+                        targetHeight,
+                        landingHeightSpec,
+                        initialVelocity = releaseVelocity.y.coerceIn(-1_800f, 1_800f)
+                    )
+                }
+                val scaleJob = launch {
+                    var reachedLiftPeak = false
+                    overlayScale.animateTo(
+                        1f,
+                        keyframes {
+                            // Land on the same spring as the card position, with a distinct
+                            // compression and rebound entirely on the moving foreground card.
+                            durationMillis = 350
+                            1.03f at 115 using FastOutSlowInEasing
+                            0.973f at 183 using FastOutSlowInEasing
+                            1.014f at 265 using FastOutSlowInEasing
+                        }
+                    ) {
+                        // Signal the first compression of the visible landing, even while the
+                        // repository and the real card are still preparing the handoff.
+                        if (value > 1.01f) reachedLiftPeak = true
+                        if (reachedLiftPeak && value < 0.995f) playContactRipple()
+                    }
+                    playContactRipple()
+                }
+                val rotationJob = launch {
+                    overlayRotation.animateTo(
+                        0f,
+                        spring(dampingRatio = 0.68f, stiffness = 390f)
+                    )
+                }
+                // The clone must lose its lifted Z offset during the same landing flight. Room can
+                // legitimately take longer than the spring; keeping liftProgress at 1f until the
+                // repository-backed card appears makes the clone visibly hover at its destination.
+                // Returning it to the grid plane here keeps the visual landing continuous while the
+                // existing real-card handoff still waits for the persisted occurrence.
+                val liftJob = launch {
+                    overlayLift.animateTo(
+                        0f,
+                        spring(dampingRatio = 0.66f, stiffness = 360f)
+                    )
+                }
+                xJob.join()
+                yJob.join()
+                heightJob.join()
+                rotationJob.join()
+                liftJob.join()
+                scaleJob.join()
             }
-            val rotationJob = launch {
-                overlayRotation.animateTo(
-                    0f,
-                    spring(dampingRatio = 0.68f, stiffness = 390f)
-                )
-            }
-            // The clone must lose its lifted Z offset during the same landing flight. Room can
-            // legitimately take longer than the spring; keeping liftProgress at 1f until the
-            // repository-backed card appears makes the clone visibly hover at its destination.
-            // Returning it to the grid plane here keeps the visual landing continuous while the
-            // existing real-card handoff still waits for the persisted occurrence.
-            val liftJob = launch {
-                overlayLift.animateTo(
-                    0f,
-                    spring(dampingRatio = 0.66f, stiffness = 360f)
-                )
-            }
-            xJob.join()
-            yJob.join()
-            heightJob.join()
-            rotationJob.join()
-            liftJob.join()
-            scaleJob.join()
             landingFlightRunning = false
             landingFlightComplete = true
             maybeHandoffOverlayToRealCard()
@@ -711,6 +827,28 @@ internal class WeekEditOverlayController(
         if (handoffRunning || committedTargetKey == null) return
         val landedRequest = request ?: return
         handoffRunning = true
+        if (tuckUnderActive) {
+            // Atomic synchronous handoff when tucking behind a host card prevents any frame gap
+            // on the front host card or duplicate overlap badge flicker.
+            awaitingCommit = false
+            realCardVisible = true
+            request = null
+            tuckUnderHostCourse = null
+            tuckUnderHostBounds = null
+            tuckUnderHostWeek = 0
+            tuckUnderOverlapCount = 0
+            gestureActive = false
+            directManipulation = false
+            releaseFrameActive = false
+            scrollCompensationY = 0f
+            autoScrollDirection = 0
+            handoffRunning = false
+            scope.launch(start = CoroutineStart.UNDISPATCHED) {
+                overlayAlpha.snapTo(1f)
+                tuckUnderProgressAnim.snapTo(0f)
+            }
+            return
+        }
         scope.launch {
             awaitingCommit = false
             // The overlay has already completed the full visible flight and rebound. Room only
@@ -828,6 +966,196 @@ internal fun weekCourseEditTarget(
         periods = targetPeriods,
         valid = targetPeriods.size == span
     )
+}
+
+internal fun canCommitWeekCourseEditMove(
+    target: WeekCourseEditTarget,
+    canMoveToWeekday: Boolean,
+    crossingWeek: Boolean,
+    original: CourseEntity,
+    edited: CourseEntity
+): Boolean =
+    target.valid &&
+        canMoveToWeekday &&
+        (crossingWeek || edited.weekday != original.weekday || edited.periods != original.periods)
+
+internal fun canCommitWeekCourseEditResize(
+    target: WeekCourseEditTarget,
+    original: CourseEntity,
+    edited: CourseEntity
+): Boolean =
+    target.valid && edited.periods != original.periods
+
+internal data class WeekEditTuckTransform(
+    val dipOffsetY: Float,
+    val scale: Float,
+    val alpha: Float,
+    val behindFront: Boolean,
+    val shadowFraction: Float
+)
+
+internal data class WeekEditFrontAbsorbTransform(
+    val scale: Float,
+    val liftOffsetY: Float
+)
+
+internal data class WeekEditOverlapOutcome(
+    val movedCardEndsBehindFront: Boolean,
+    val frontHostCourse: CourseEntity?,
+    val overlapCount: Int
+)
+
+internal fun predictWeekEditOverlapOutcome(
+    original: CourseEntity,
+    edited: CourseEntity,
+    weekCourses: List<CourseEntity>,
+    periodIndexes: List<Int>,
+    week: Int
+): WeekEditOverlapOutcome {
+    if (periodIndexes.isEmpty()) {
+        return WeekEditOverlapOutcome(movedCardEndsBehindFront = false, frontHostCourse = null, overlapCount = 1)
+    }
+    val remainingDayCourses = weekCourses.filter { other ->
+        other.id != original.id &&
+            week in other.weeks &&
+            parityMatches(other.weekParity, week) &&
+            other.weekday == edited.weekday
+    }
+    val simulatedMovedId = (weekCourses.maxOfOrNull { it.id } ?: 0L) + 1L
+    val simulatedMoved = edited.copy(
+        id = simulatedMovedId,
+        weeks = listOf(week),
+        weekParity = WeekParity.ALL
+    )
+    val postDropCourses = remainingDayCourses + simulatedMoved
+    val courseById = postDropCourses.associateBy { it.id }
+    val conflictGroups = buildWeekConflictGroups(postDropCourses, periodIndexes)
+    data class SlotCandidate(val key: String, val courseId: Long, val slot: ScheduleOverlapSlot)
+    val candidates = mutableListOf<SlotCandidate>()
+    conflictGroups.forEach { group ->
+        val courseCount = group.courses.size
+        group.courses.forEachIndexed { courseIndex, course ->
+            val segments = if (course.hasCustomTime() && course.arrangementProjection == null) {
+                group.segments.filter { it.course.id == course.id }.minByOrNull { it.startPosition }?.let(::listOf).orEmpty()
+            } else {
+                group.segments.filter { it.course.id == course.id }
+            }
+            segments.forEach { segment ->
+                val startSlot = segment.startPosition.toDouble()
+                val endSlot = (segment.endPosition + 1).toDouble()
+                val key = "${overlapEntryKey(course, edited.weekday, startSlot, endSlot)}_${courseCount - courseIndex}"
+                candidates += SlotCandidate(
+                    key = key,
+                    courseId = course.id,
+                    slot = ScheduleOverlapSlot(
+                        id = key,
+                        weekday = edited.weekday,
+                        start = startSlot,
+                        end = endSlot,
+                        stableOrder = courseCount - courseIndex
+                    )
+                )
+            }
+        }
+    }
+    if (candidates.isEmpty()) {
+        return WeekEditOverlapOutcome(movedCardEndsBehindFront = false, frontHostCourse = null, overlapCount = 1)
+    }
+    val candidateByKey = candidates.associateBy { it.key }
+    val placements = layoutScheduleOverlapSlots(candidates.map { it.slot })
+    val placementById = placements.associateBy { it.slot.id }
+    val movedPlacements = placements.filter { placement ->
+        candidateByKey[placement.slot.id]?.courseId == simulatedMovedId
+    }
+    val editedPlacement = movedPlacements.firstOrNull { it.overlapCount > 1 }
+        ?: return WeekEditOverlapOutcome(movedCardEndsBehindFront = false, frontHostCourse = null, overlapCount = 1)
+    val topSlot = editedPlacement.overlapGroup.lastOrNull()
+        ?: return WeekEditOverlapOutcome(movedCardEndsBehindFront = false, frontHostCourse = null, overlapCount = editedPlacement.overlapCount)
+    if (topSlot.id == editedPlacement.slot.id) {
+        return WeekEditOverlapOutcome(
+            movedCardEndsBehindFront = false,
+            frontHostCourse = null,
+            overlapCount = editedPlacement.overlapCount
+        )
+    }
+    val topCandidate = candidateByKey[topSlot.id]
+    val frontHostCourse = topCandidate?.let { courseById[it.courseId] }
+    val topCount = placementById[topSlot.id]?.overlapCount ?: editedPlacement.overlapCount
+    return WeekEditOverlapOutcome(
+        movedCardEndsBehindFront = frontHostCourse != null,
+        frontHostCourse = frontHostCourse,
+        overlapCount = topCount
+    )
+}
+
+internal fun weekEditTuckUnderTransform(progress: Float, dipMaxPx: Float): WeekEditTuckTransform {
+    val p = progress.coerceIn(0f, 1f)
+    val dipOffsetY: Float
+    val scale: Float
+    val alpha: Float
+    if (p <= 0.45f) {
+        val t = (p / 0.45f).coerceIn(0f, 1f)
+        val dipEase = CubicBezierEasing(0.18f, 0.0f, 0.22f, 1.0f).transform(t)
+        dipOffsetY = dipMaxPx * dipEase
+        scale = 1.0f + (0.78f - 1.0f) * dipEase
+        alpha = 1.0f + (0.30f - 1.0f) * dipEase
+    } else if (p <= 0.78f) {
+        val t = ((p - 0.45f) / 0.33f).coerceIn(0f, 1f)
+        val returnEase = CubicBezierEasing(0.18f, 0.86f, 0.24f, 1.0f).transform(t)
+        dipOffsetY = dipMaxPx * (1f - returnEase)
+        scale = 0.78f + (1.0f - 0.78f) * returnEase
+        alpha = 0.30f + (1.0f - 0.30f) * returnEase
+    } else {
+        dipOffsetY = 0f
+        scale = 1f
+        alpha = 1f
+    }
+    return WeekEditTuckTransform(
+        dipOffsetY = dipOffsetY,
+        scale = scale,
+        alpha = alpha,
+        behindFront = p > 0.45f,
+        shadowFraction = (1f - (p / 0.45f)).coerceIn(0f, 1f)
+    )
+}
+
+internal fun weekEditFrontAbsorbTransform(progress: Float): WeekEditFrontAbsorbTransform {
+    val p = progress.coerceIn(0f, 1f)
+    fun smoothStep(a: Float, b: Float): Float {
+        val u = ((p - a) / (b - a)).coerceIn(0f, 1f)
+        return u * u * (3f - 2f * u)
+    }
+    return when {
+        p < 0.58f -> WeekEditFrontAbsorbTransform(scale = 1f, liftOffsetY = 0f)
+        p < 0.74f -> {
+            val s = smoothStep(0.58f, 0.74f)
+            WeekEditFrontAbsorbTransform(
+                scale = 1.0f + (0.95f - 1.0f) * s,
+                liftOffsetY = 0.5f * s
+            )
+        }
+        p < 0.86f -> {
+            val s = smoothStep(0.74f, 0.86f)
+            WeekEditFrontAbsorbTransform(
+                scale = 0.95f + (1.06f - 0.95f) * s,
+                liftOffsetY = 0.5f + (-0.75f - 0.5f) * s
+            )
+        }
+        p < 0.94f -> {
+            val s = smoothStep(0.86f, 0.94f)
+            WeekEditFrontAbsorbTransform(
+                scale = 1.06f + (0.992f - 1.06f) * s,
+                liftOffsetY = -0.75f * (1f - s)
+            )
+        }
+        else -> {
+            val s = smoothStep(0.94f, 1.0f)
+            WeekEditFrontAbsorbTransform(
+                scale = 0.992f + (1.0f - 0.992f) * s,
+                liftOffsetY = 0f
+            )
+        }
+    }
 }
 
 internal fun hasWeekCourseEditConflict(

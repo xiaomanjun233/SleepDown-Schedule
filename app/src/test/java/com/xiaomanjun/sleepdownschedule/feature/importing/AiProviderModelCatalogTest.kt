@@ -73,4 +73,40 @@ class AiProviderModelCatalogTest {
         assertThrows(IllegalArgumentException::class.java) { parseOfficialAiModels("""{"data":[]}""", AiProviderPresets.mimo) }
         assertThrows(IllegalStateException::class.java) { parseOfficialAiModels("""{"unexpected":[]}""", AiProviderPresets.mimo) }
     }
+
+    @Test fun switchingModelsInWheelPreservesUserAddedCustomModelsWithOfficialCatalog() {
+        val context = ApplicationProvider.getApplicationContext<Application>()
+        val catalog = listOf(
+            AiModelOption("Live 1", "mimo-live-1", supportsImageInput = true, supportsResponses = true),
+            AiModelOption("Live 2", "mimo-live-2", supportsImageInput = true, supportsResponses = true)
+        )
+        AiProviderModelCatalog.save(context, AiProviderPresets.mimo, catalog)
+        val initial = AiImportSettings(
+            AiProviderPresets.mimo.copy(
+                defaultModel = "my-custom-mimo",
+                availableModels = listOf("my-custom-mimo", "second-custom-mimo")
+            )
+        )
+        AiImportSettingsStore.save(context, initial)
+
+        // Switching to a catalog model must still preserve user-added custom models in availableModels & picker.
+        val switchedToCatalog = initial.copy(
+            profile = initial.profile.copy(defaultModel = "mimo-live-1")
+        )
+        AiImportSettingsStore.save(context, switchedToCatalog)
+        val reloaded = AiImportSettingsStore.loadProvider(context, AiProviderPresets.mimo.id)
+        val optionsAfterSwitch = AiProviderPresets.modelOptions(reloaded.profile).map { it.model }
+        assertTrue(optionsAfterSwitch.contains("mimo-live-1"))
+        assertTrue(optionsAfterSwitch.contains("my-custom-mimo"))
+        assertTrue(optionsAfterSwitch.contains("second-custom-mimo"))
+
+        // Switching back to a user-added model updates defaultModel and keeps the other custom model.
+        val switchedBack = reloaded.copy(
+            profile = reloaded.profile.copy(defaultModel = "second-custom-mimo")
+        )
+        AiImportSettingsStore.save(context, switchedBack)
+        val reloadedAgain = AiImportSettingsStore.loadProvider(context, AiProviderPresets.mimo.id)
+        assertEquals("second-custom-mimo", reloadedAgain.profile.defaultModel)
+        assertTrue(AiProviderPresets.modelOptions(reloadedAgain.profile).any { it.model == "my-custom-mimo" })
+    }
 }
